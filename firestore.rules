@@ -1,0 +1,200 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'Minombreesmcfly@gmail.com' ||
+        request.auth.token.email == 'minombreesmcfly@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // User Validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             data.email == request.auth.token.email &&
+             data.role in ['fan', 'artist'] &&
+             (!('bio' in data) || data.bio is string) &&
+             (!('photoURL' in data) || data.photoURL is string);
+    }
+
+    match /users/{userId} {
+      allow get: if true;
+      allow list: if true; // Publicly list artists/profiles
+      
+      allow create: if isAdmin() || (isSignedIn() && isValidUser(request.resource.data) && userId == request.auth.uid);
+      
+      allow update: if (isAdmin() || isOwner(userId)) && (
+        // Admin can update anything (e.g. isPinned)
+        isAdmin() || (
+          // Owner can update everything EXCEPT role, isPinned, uid, and email
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'displayName', 'artistName', 'photoURL', 'bio', 'spotifyUrl', 'appleMusicUrl', 'instagramUrl', 
+            'points', 'highScore', 'acceptedEcosystem', 'updatedAt', 'avatarSelfieUrl', 
+            'avatarUrl', 'hasAvatar', 'geminiApiKey', 'category', 'plan', 'isSubscribed', 'adminPointsSeeded',
+            'unlockedCharacters', 'unlockedBeats'
+          ])
+        )
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // Redemptions Validation
+    function isValidRedemption(data) {
+      return data.keys().hasAll(['userId', 'rewardTitle', 'pointsSpent']) &&
+             data.userId == request.auth.uid &&
+             data.rewardTitle is string && data.rewardTitle.size() <= 200 &&
+             data.pointsSpent is number && data.pointsSpent >= 0 &&
+             (!('status' in data) || data.status in ['pending', 'claimed', 'contacted', 'completed', 'rejected']) &&
+             (!('userEmail' in data) || data.userEmail is string) &&
+             (!('userDisplayName' in data) || data.userDisplayName is string) &&
+             (!('claimedAt' in data) || data.claimedAt is string) &&
+             (!('createdAt' in data) || data.createdAt is string);
+    }
+
+    match /redemptions/{redemptionId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidRedemption(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    // Track Validation
+    function isValidTrack(data) {
+      return data.keys().hasAll(['artistId', 'title', 'audioUrl']) &&
+             data.artistId is string &&
+             data.title is string && data.title.size() <= 200 &&
+             data.audioUrl is string && data.audioUrl.size() <= 1000;
+    }
+
+    match /tracks/{trackId} {
+      allow read: if true; // Public radio/music
+      
+      allow create: if (isSignedIn() && isValidTrack(request.resource.data) && (
+        // Must be an artist to upload music
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'artist' ||
+        isAdmin()
+      ));
+      
+      allow update: if isAdmin() || (isSignedIn() && resource.data.artistId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.artistId == request.auth.uid);
+    }
+
+    // News/Events Validation
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Configuration Settings (e.g., Spotify, Turntable)
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidId(configId);
+    }
+
+    // Studio Masterpieces Validation
+    function isValidStudioMasterpiece(data) {
+      return data.keys().hasAll(['image', 'outfitPrompt', 'createdBy']) &&
+             data.createdBy == request.auth.uid &&
+             data.image is string &&
+             data.outfitPrompt is string && data.outfitPrompt.size() <= 4000000 && // Base64 image sizes can be massive, but let's allow ample size for the base64 or prompt
+             (!('originalOutfit' in data) || (data.originalOutfit is string && data.originalOutfit.size() <= 2000)) &&
+             (!('createdByName' in data) || (data.createdByName is string && data.createdByName.size() <= 200)) &&
+             (!('createdAt' in data) || data.createdAt == request.time);
+    }
+
+    match /studioMasterpieces/{masterpieceId} {
+      allow get, list, delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow get, list, delete: if isAdmin();
+      
+      allow create: if isSignedIn() && isValidStudioMasterpiece(request.resource.data);
+    }
+
+    // Playlist Applications Validation
+    match /playlist_applications/{appId} {
+      allow create: if true; // Let anyone submit a playlist application
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Contact Messages Validation
+    function isValidContactMessage(data) {
+      return data.keys().hasAll(['name', 'email', 'projectType', 'comments']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.projectType is string && data.projectType.size() <= 100 &&
+             data.comments is string && data.comments.size() <= 10000;
+    }
+
+    match /contact_messages/{messageId} {
+      allow create: if true; // Anyone can send a visual contact inquiry form
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Admin Messages Validation (Support and help requests sent by logged in users)
+    function isValidAdminMessage(data) {
+      return data.keys().hasAll(['userId', 'message']) &&
+             data.userId == request.auth.uid &&
+             data.message is string && data.message.size() <= 5000 &&
+             (!('userEmail' in data) || data.userEmail is string) &&
+             (!('userName' in data) || data.userName is string) &&
+             (!('status' in data) || data.status in ['pending', 'read', 'replied']);
+    }
+
+    match /admin_messages/{messageId} {
+      allow create: if isSignedIn() && isValidAdminMessage(request.resource.data);
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // User Notifications (sent by system/admins to specific users)
+    function isValidUserNotification(data) {
+      return data.keys().hasAll(['userId', 'title', 'message']) &&
+             data.userId is string &&
+             data.title is string && data.title.size() <= 200 &&
+             data.message is string && data.message.size() <= 2000;
+    }
+
+    match /user_notifications/{notificationId} {
+      allow create: if isAdmin() && isValidUserNotification(request.resource.data);
+      allow get, list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Allow admin everything
+      allow read, write: if isAdmin();
+    }
+
+    // Career Boost Requests (submitted by artists/users from Ecosystem)
+    match /careerBoostRequests/{requestId} {
+      allow create: if true; // Allow artists/guests to submit career boost consultation forms
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+  }
+}

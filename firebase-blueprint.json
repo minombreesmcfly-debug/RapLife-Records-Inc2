@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a fan, artist, or admin in the system.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["fan", "artist", "admin"] },
+        "bio": { "type": "string" },
+        "spotifyUrl": { "type": "string" },
+        "appleMusicUrl": { "type": "string" },
+        "instagramUrl": { "type": "string" },
+        "isPinned": { "type": "boolean" },
+        "pinnedOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Track": {
+      "title": "Track",
+      "description": "A music track or radio interstitial.",
+      "type": "object",
+      "properties": {
+        "artistId": { "type": "string" },
+        "artistName": { "type": "string" },
+        "title": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "isRadioInterstitial": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "playCount": { "type": "number" }
+      },
+      "required": ["artistId", "title", "audioUrl"]
+    },
+    "NewsEvent": {
+      "title": "News or Event",
+      "description": "News updates or upcoming events from the label.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "type": { "type": "string", "enum": ["news", "event"] },
+        "eventDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "type"]
+    },
+    "StudioMasterpiece": {
+      "title": "Studio Masterpiece",
+      "description": "A customized outfit designed for a photo using virtual AI stylist.",
+      "type": "object",
+      "properties": {
+        "image": { "type": "string" },
+        "originalOutfit": { "type": "string" },
+        "outfitPrompt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["image", "outfitPrompt", "createdBy"]
+    },
+    "Redemption": {
+      "title": "Redemption",
+      "description": "Points spent by users to redeem specific rewards.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userDisplayName": { "type": "string" },
+        "rewardTitle": { "type": "string" },
+        "pointsSpent": { "type": "number" },
+        "claimedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "claimed", "rejected"] }
+      },
+      "required": ["userId", "rewardTitle", "pointsSpent"]
+    },
+    "PlaylistApplication": {
+      "title": "PlaylistApplication",
+      "description": "Applications by artists to get their songs added to the official RapLife Spotify playlist.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "artistName": { "type": "string" },
+        "spotifyLink": { "type": "string" },
+        "socialNetworkLink": { "type": "string" },
+        "pitchMessage": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["artistName", "spotifyLink"]
+    },
+    "ContactMessage": {
+      "title": "ContactMessage",
+      "description": "Audiovisual production and videoclip inquiries submitted from the homepage.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "projectType": { "type": "string" },
+        "comments": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "read", "answered"] }
+      },
+      "required": ["name", "email", "projectType", "comments"]
+    },
+    "AdminMessage": {
+      "title": "AdminMessage",
+      "description": "Help, support, and feedback requests sent by users to the administration.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "message": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "read", "replied"] }
+      },
+      "required": ["userId", "message"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "System or admin-sent replies/notifications to users.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "senderName": { "type": "string" },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["userId", "title", "message"]
+    },
+    "CareerBoostRequest": {
+      "title": "CareerBoostRequest",
+      "description": "Career acceleration service requests submitted by registered artists.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "userCategory": { "type": "string" },
+        "userSpecialty": { "type": "string" },
+        "services": { "type": "array" },
+        "phone": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "contacted", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userName", "phone", "services"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of user profiles."
+    },
+    "tracks": {
+      "schema": "Track",
+      "description": "Collection of uploaded songs and radio clips."
+    },
+    "news": {
+      "schema": "NewsEvent",
+      "description": "Label and artist news/events."
+    },
+    "studioMasterpieces": {
+      "schema": "StudioMasterpiece",
+      "description": "Virtual customized outfit designs saved by admins and premium artists."
+    },
+    "redemptions": {
+      "schema": "Redemption",
+      "description": "Collection of spent rewards."
+    },
+    "playlist_applications": {
+      "schema": "PlaylistApplication",
+      "description": "Collection of applications submitted by artists to enter the Spotify playlist."
+    },
+    "contact_messages": {
+      "schema": "ContactMessage",
+      "description": "Collection of audiovisual or videoclip requests from the homepage."
+    },
+    "admin_messages": {
+      "schema": "AdminMessage",
+      "description": "Collection of help & support messages sent by registered users to administrators."
+    },
+    "user_notifications": {
+      "schema": "UserNotification",
+      "description": "Collection of personal notifications / replies for users from administrators."
+    },
+    "careerBoostRequests": {
+      "schema": "CareerBoostRequest",
+      "description": "Collection of career acceleration inquiries submitted by artists."
+    }
+  }
+}
