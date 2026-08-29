@@ -11,7 +11,7 @@ function getEmbedInfo(rawUrl: string): { isEmbed: boolean; embedUrl: string | nu
   if (!rawUrl) {
     return {
       isEmbed: true,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${defaultId}?autoplay=1&mute=1&loop=1&playlist=${defaultId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${defaultId}?autoplay=1&mute=1&loop=1&playlist=${defaultId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&playsinline=1&enablejsapi=1`,
       youtubeWatchUrl: `https://youtu.be/${defaultId}`
     };
   }
@@ -21,7 +21,7 @@ function getEmbedInfo(rawUrl: string): { isEmbed: boolean; embedUrl: string | nu
     const videoId = ytMatch[1];
     return {
       isEmbed: true,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&playsinline=1&enablejsapi=1`,
       youtubeWatchUrl: `https://youtu.be/${videoId}`
     };
   }
@@ -195,7 +195,7 @@ export default function IntroVideo({ compact = false }: { compact?: boolean }) {
   };
 
   return (
-    <section id="welcome-video-intro" className={compact ? "w-full my-1" : "w-full my-6 md:my-10"}>
+    <section id="welcome-video-intro" className={compact ? "w-full my-0.5" : "w-full"}>
       <div className={`relative bg-black/80 backdrop-blur-md ${compact ? 'border-2 border-boombox-gray/80 rounded-2xl' : 'border-2 md:border-4 border-boombox-gray/80 rounded-2xl md:rounded-[3rem]'} overflow-hidden shadow-2xl boombox-texture group`}>
         
         {/* Main Clean Video Frame (No controls, no timeline, auto-looping) */}
@@ -206,9 +206,9 @@ export default function IntroVideo({ compact = false }: { compact?: boolean }) {
               key={sources.embedUrl}
               src={sources.embedUrl}
               title="RapLife Records Official Video"
-              className="w-full h-full border-0 absolute inset-0 pointer-events-auto"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
+              className="w-full h-full border-0 absolute inset-0 pointer-events-none select-none scale-[1.01]"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              tabIndex={-1}
             />
           ) : (
             <video
@@ -220,12 +220,19 @@ export default function IntroVideo({ compact = false }: { compact?: boolean }) {
               muted={isMuted}
               loop
               playsInline
-              className="w-full h-full object-cover bg-black"
+              className="w-full h-full object-cover bg-black pointer-events-none"
             >
               <source src={sources.primary} type="video/mp4" />
               <source src={sources.fallback} type="video/mp4" />
             </video>
           )}
+
+          {/* Transparent Clickable Overlay to toggle audio cleanly without YouTube's OSD showing */}
+          <div 
+            onClick={toggleAudio}
+            className="absolute inset-0 z-10 cursor-pointer bg-transparent"
+            title={isMuted ? "Haz clic para activar audio" : "Haz clic para silenciar video"}
+          />
 
           {/* Top Center YouTube Button */}
           <div className="absolute top-3 md:top-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">

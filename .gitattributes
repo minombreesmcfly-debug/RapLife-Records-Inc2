@@ -1,0 +1,28 @@
+# Git configuration to protect audio, video, and image binaries from corruption
+
+# Audio files (Binary - never modify line endings)
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.m4a binary
+*.flac binary
+*.aac binary
+
+# Video files
+*.mp4 binary
+*.webm binary
+*.mov binary
+
+# Image files
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.svg text
+*.ico binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary

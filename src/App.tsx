@@ -288,7 +288,7 @@ const LandingPage = () => {
   const { user } = useAuth();
 
   return (
-    <div className="max-w-6xl mx-auto px-2 md:px-0 pt-4 md:pt-6 space-y-20 md:space-y-32">
+    <div className="max-w-6xl mx-auto px-2 md:px-0 pt-3 md:pt-5 space-y-5 md:space-y-8">
       {/* PORTADA PRINCIPAL DE ARTISTAS DESTACADOS */}
       <div className="bg-black/65 backdrop-blur-md border-2 md:border-4 border-boombox-gray/80 rounded-2xl md:rounded-[3rem] overflow-hidden shadow-2xl relative boombox-texture">
         <SponsoredCarousel />
@@ -409,6 +409,20 @@ const AppContent = () => {
         <img 
           src="/graffiti_wall_bg.jpg" 
           alt="Graffiti Wall" 
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (!target.dataset.triedFallback1) {
+              target.dataset.triedFallback1 = 'true';
+              target.src = '/assets/graffiti_wall_bg.jpg';
+            } else if (!target.dataset.triedFallback2) {
+              target.dataset.triedFallback2 = 'true';
+              target.src = '/assets/dark_brick_graffiti.jpg';
+            } else if (!target.dataset.triedFallback3) {
+              target.dataset.triedFallback3 = 'true';
+              target.src = '/assets/dark_graffiti_brick_wall.jpg';
+            }
+          }}
           className="w-full h-full object-cover object-center opacity-70 select-none"
         />
         

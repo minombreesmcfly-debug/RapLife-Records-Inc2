@@ -58,6 +58,17 @@ async function ensureMp3(buffer: Buffer, originalName: string, mimetype: string)
 
 // Lazy loaded Gemini API initialization
 let aiClient: GoogleGenAI | null = null;
+function getSafeAdminFirestore() {
+  try {
+    if (admin.apps.length > 0) {
+      if (firebaseConfig.firestoreDatabaseId) {
+        return getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId);
+      }
+      return getFirestore(admin.app());
+    }
+  } catch (_) {}
+  return null;
+}
 function getGeminiClient(userKey?: string): GoogleGenAI {
   const finalKey = userKey || process.env.GEMINI_API_KEY;
   if (!finalKey) {
@@ -111,15 +122,17 @@ async function resolveGeminiApiKey(userKey?: string): Promise<string> {
 
   // Fallback to searching Firestore database for our admin user's key
   try {
-    const db = getFirestore(undefined, firebaseConfig.firestoreDatabaseId || undefined);
-    const adminEmails = ['minombreesmcfly@gmail.com', 'macfly@gmail.com'];
-    for (const email of adminEmails) {
-      const snap = await db.collection('users').where('email', '==', email).limit(1).get();
-      if (!snap.empty) {
-        const storedKey = snap.docs[0].get('geminiApiKey');
-        if (storedKey && storedKey.trim() !== '') {
-          console.log(`[API] Successfully resolved Gemini API Key from admin profile (${email}) in Firestore.`);
-          return storedKey.trim();
+    const db = getSafeAdminFirestore();
+    if (db) {
+      const adminEmails = ['minombreesmcfly@gmail.com', 'macfly@gmail.com'];
+      for (const email of adminEmails) {
+        const snap = await db.collection('users').where('email', '==', email).limit(1).get();
+        if (!snap.empty) {
+          const storedKey = snap.docs[0].get('geminiApiKey');
+          if (storedKey && storedKey.trim() !== '') {
+            console.log(`[API] Successfully resolved Gemini API Key from admin profile (${email}) in Firestore.`);
+            return storedKey.trim();
+          }
         }
       }
     }
@@ -187,7 +200,9 @@ try {
 // Ensure required directory structure exists
 const requiredDirs = [
   path.join(process.cwd(), 'uploads'),
+  path.join(process.cwd(), 'uploads', 'tracks'),
   path.join(process.cwd(), 'public', 'assets', 'radio'),
+  path.join(process.cwd(), 'public', 'assets', 'beats'),
   path.join(process.cwd(), 'public', 'assets', 'video')
 ];
 for (const rDir of requiredDirs) {
@@ -200,7 +215,7 @@ for (const rDir of requiredDirs) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -1133,38 +1148,40 @@ CRITICAL STYLING RULES:
 
       // Also clean up any matching database records in Firestore tracks collection
       try {
-        const firestoreDb = getFirestore(undefined, firebaseConfig.firestoreDatabaseId || undefined);
-        const tracksRef = firestoreDb.collection('tracks');
-        
-        // Match standard relative URLs or decoded matches
-        const matchUrls = [
-          `/uploads/${fileName}`,
-          `/assets/radio/${fileName}`,
-          `/uploads/tracks/${fileName}`,
-          `/uploads/${decodeURIComponent(fileName)}`,
-          `/assets/radio/${decodeURIComponent(fileName)}`
-        ];
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          const tracksRef = firestoreDb.collection('tracks');
+          
+          // Match standard relative URLs or decoded matches
+          const matchUrls = [
+            `/uploads/${fileName}`,
+            `/assets/radio/${fileName}`,
+            `/uploads/tracks/${fileName}`,
+            `/uploads/${decodeURIComponent(fileName)}`,
+            `/assets/radio/${decodeURIComponent(fileName)}`
+          ];
 
-        for (const url of matchUrls) {
-          const snapshot = await tracksRef.where('audioUrl', '==', url).get();
-          for (const doc of snapshot.docs) {
-            await doc.ref.delete();
-            console.log(`[API] Deleted matching Firestore track document: ${doc.id} for url: ${url}`);
+          for (const url of matchUrls) {
+            const snapshot = await tracksRef.where('audioUrl', '==', url).get();
+            for (const doc of snapshot.docs) {
+              await doc.ref.delete();
+              console.log(`[API] Deleted matching Firestore track document: ${doc.id} for url: ${url}`);
+            }
           }
-        }
 
-        // Wildcard / substring scan of the collection for custom or absolute URLs containing the file name
-        const allSnapshot = await tracksRef.get();
-        for (const doc of allSnapshot.docs) {
-          const docAudioUrl = doc.get('audioUrl') || '';
-          if (docAudioUrl.toLowerCase().includes(fileName.toLowerCase()) || 
-              docAudioUrl.toLowerCase().includes(decodeURIComponent(fileName).toLowerCase())) {
-            await doc.ref.delete();
-            console.log(`[API] Deleted matching Firestore track document by substring match: ${doc.id} (${docAudioUrl})`);
+          // Wildcard / substring scan of the collection for custom or absolute URLs containing the file name
+          const allSnapshot = await tracksRef.get();
+          for (const doc of allSnapshot.docs) {
+            const docAudioUrl = doc.get('audioUrl') || '';
+            if (docAudioUrl.toLowerCase().includes(fileName.toLowerCase()) || 
+                docAudioUrl.toLowerCase().includes(decodeURIComponent(fileName).toLowerCase())) {
+              await doc.ref.delete();
+              console.log(`[API] Deleted matching Firestore track document by substring match: ${doc.id} (${docAudioUrl})`);
+            }
           }
         }
       } catch (dbErr: any) {
-        console.warn('[API] Could not delete matching Firestore track document:', dbErr.message);
+        // Silently skip if Firestore admin not available
       }
 
       if (deleted) {
@@ -1346,39 +1363,41 @@ CRITICAL STYLING RULES:
 
       // Also merge any Firestore tracks marked as beats or instrumentals
       try {
-        const firestoreDb = getFirestore(undefined, firebaseConfig.firestoreDatabaseId || undefined);
-        const tracksSnap = await firestoreDb.collection('tracks').get();
-        tracksSnap.docs.forEach(doc => {
-          const data = doc.data();
-          const isDbBeat = data.isBeat === true || 
-                           data.genre?.toLowerCase() === 'beat' || 
-                           data.genre?.toLowerCase() === 'instrumental' ||
-                           data.type === 'beat' ||
-                           data.title?.toLowerCase().includes('beat') ||
-                           data.title?.toLowerCase().includes('instrumental');
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          const tracksSnap = await firestoreDb.collection('tracks').get();
+          tracksSnap.docs.forEach(doc => {
+            const data = doc.data();
+            const isDbBeat = data.isBeat === true || 
+                             data.genre?.toLowerCase() === 'beat' || 
+                             data.genre?.toLowerCase() === 'instrumental' || 
+                             data.type === 'beat' ||
+                             data.title?.toLowerCase().includes('beat') ||
+                             data.title?.toLowerCase().includes('instrumental');
 
-          if (isDbBeat && data.audioUrl) {
-            const normUrl = data.audioUrl.toLowerCase();
-            const exists = Array.from(uniqueBeats.values()).some(b => b.audioUrl.toLowerCase() === normUrl);
-            if (!exists) {
-              uniqueBeats.set(doc.id, {
-                id: doc.id,
-                artistId: data.artistId || 'raplife-beatmaker',
-                artistName: data.artistName || 'RAPLIFE PROD',
-                title: data.title || 'Beat sin título',
-                audioUrl: data.audioUrl,
-                coverUrl: data.coverUrl || '/assets/dark_brick_graffiti.jpg',
-                isRadioInterstitial: false,
-                isBeat: true,
-                bpm: data.bpm,
-                fullName: data.title || doc.id,
-                source: 'cloud_db'
-              });
+            if (isDbBeat && data.audioUrl) {
+              const normUrl = data.audioUrl.toLowerCase();
+              const exists = Array.from(uniqueBeats.values()).some(b => b.audioUrl.toLowerCase() === normUrl);
+              if (!exists) {
+                uniqueBeats.set(doc.id, {
+                  id: doc.id,
+                  artistId: data.artistId || 'raplife-beatmaker',
+                  artistName: data.artistName || 'RAPLIFE PROD',
+                  title: data.title || 'Beat sin título',
+                  audioUrl: data.audioUrl,
+                  coverUrl: data.coverUrl || '/assets/dark_brick_graffiti.jpg',
+                  isRadioInterstitial: false,
+                  isBeat: true,
+                  bpm: data.bpm,
+                  fullName: data.title || doc.id,
+                  source: 'cloud_db'
+                });
+              }
             }
-          }
-        });
+          });
+        }
       } catch (e) {
-        console.warn('[API] Firestore beat query error:', e);
+        // Silently skip if Firestore admin not available in local container
       }
 
       const beats = Array.from(uniqueBeats.values());
@@ -1465,25 +1484,27 @@ CRITICAL STYLING RULES:
 
       // Also clean up any matching database records in Firestore tracks collection
       try {
-        const firestoreDb = getFirestore(undefined, firebaseConfig.firestoreDatabaseId || undefined);
-        const tracksRef = firestoreDb.collection('tracks');
-        if (audioUrl) {
-          const snap = await tracksRef.where('audioUrl', '==', audioUrl).get();
-          for (const d of snap.docs) {
-            await d.ref.delete();
-          }
-        }
-        if (cleanFileName) {
-          const allSnap = await tracksRef.get();
-          for (const d of allSnap.docs) {
-            const dUrl = d.get('audioUrl') || '';
-            if (dUrl.includes(cleanFileName) || dUrl.includes(encodeURIComponent(cleanFileName))) {
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          const tracksRef = firestoreDb.collection('tracks');
+          if (audioUrl) {
+            const snap = await tracksRef.where('audioUrl', '==', audioUrl).get();
+            for (const d of snap.docs) {
               await d.ref.delete();
+            }
+          }
+          if (cleanFileName) {
+            const allSnap = await tracksRef.get();
+            for (const d of allSnap.docs) {
+              const dUrl = d.get('audioUrl') || '';
+              if (dUrl.includes(cleanFileName) || dUrl.includes(encodeURIComponent(cleanFileName))) {
+                await d.ref.delete();
+              }
             }
           }
         }
       } catch (dbErr: any) {
-        console.warn('[API] Could not delete matching Firestore beat doc:', dbErr.message);
+        // Silently skip if Firestore admin not available in local container
       }
 
       res.json({ success: true, deleted });
@@ -1676,9 +1697,9 @@ CRITICAL STYLING RULES:
   app.use('/uploads', express.static(uploadsPath, staticOptions));
 
   // Robust production mode detection
-  const isProduction = process.env.NODE_ENV === 'production' || 
-    (typeof __filename !== 'undefined' && __filename.includes('server.cjs')) ||
-    fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'));
+  const isRunningFromBundle = (typeof __filename !== 'undefined' && __filename.includes('dist')) || 
+                              (process.argv && process.argv.some(arg => arg.includes('dist')));
+  const isProduction = process.env.NODE_ENV === 'production' || isRunningFromBundle;
 
   // Handle SPA and Vite
   if (!isProduction) {

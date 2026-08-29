@@ -5,7 +5,7 @@ import { useMusic } from '../context/MusicContext';
 import { collection, query, getDocs, doc, updateDoc, addDoc, serverTimestamp, where, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
-import { Shield, Upload, Star, Music, User, Check, X, Radio, PlayCircle, PlusCircle, Pencil, Trash, Link2, ChevronUp, ChevronDown, Save, Play, Users, Search, SlidersHorizontal, Rocket, Phone, Mail, MessageSquare, Gift, RotateCcw, Folder, Copy, Film, Video, ListVideo, SkipForward, SkipBack, ExternalLink, RefreshCw, Disc, Volume2, Pause } from 'lucide-react';
+import { Shield, Upload, Star, Music, User, Check, X, Radio, PlayCircle, PlusCircle, Pencil, Trash, Link2, ChevronUp, ChevronDown, Save, Play, Users, Search, SlidersHorizontal, Rocket, Phone, Mail, MessageSquare, Gift, RotateCcw, Folder, Copy, Film, Video, ListVideo, SkipForward, SkipBack, ExternalLink, RefreshCw, Disc, Volume2, Pause, Download } from 'lucide-react';
 import { VideoItem, VideoPlaylistConfig } from '../types';
 import IntroVideo from '../components/IntroVideo';
 
@@ -1720,6 +1720,19 @@ const AdminView = () => {
         <div className="text-center md:text-left flex-1">
           <h1 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter underline decoration-brand-yellow/30">PANEL DE CONTROL</h1>
           <p className="text-gray-500 font-bold uppercase tracking-widest text-sm mt-1">Gesti&oacute;n maestra de RAPLIFE RECORDS INC.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <a
+            href="/graffiti_wall_bg.jpg"
+            download="graffiti_wall_bg.jpg"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-yellow text-black font-black uppercase text-xs rounded-xl shadow-glow hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            title="Descargar imagen HD del fondo de muro de grafiti urbano"
+          >
+            <Download size={15} />
+            <span>DESCARGAR WALLPAPER HD</span>
+          </a>
         </div>
       </header>
 
