@@ -22,8 +22,12 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'Minombreesmcfly@gmail.com' ||
-        request.auth.token.email == 'minombreesmcfly@gmail.com' ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == 'Minombreesmcfly@gmail.com' ||
+          request.auth.token.email == 'minombreesmcfly@gmail.com' ||
+          request.auth.token.email.lower() == 'minombreesmcfly@gmail.com' ||
+          request.auth.token.email.lower() == 'macfly@gmail.com'
+        )) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
@@ -35,32 +39,16 @@ service cloud.firestore {
 
     // User Validation
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email', 'role']) &&
-             data.uid == request.auth.uid &&
-             data.email == request.auth.token.email &&
-             data.role in ['fan', 'artist'] &&
-             (!('bio' in data) || data.bio is string) &&
-             (!('photoURL' in data) || data.photoURL is string);
+      return data.keys().hasAll(['uid']) &&
+             data.uid == request.auth.uid;
     }
 
     match /users/{userId} {
-      allow get: if true;
-      allow list: if true; // Publicly list artists/profiles
+      allow get, list: if true; // Publicly list artists/profiles
       
-      allow create: if isAdmin() || (isSignedIn() && isValidUser(request.resource.data) && userId == request.auth.uid);
+      allow create: if isSignedIn() && (isAdmin() || userId == request.auth.uid);
       
-      allow update: if (isAdmin() || isOwner(userId)) && (
-        // Admin can update anything (e.g. isPinned)
-        isAdmin() || (
-          // Owner can update everything EXCEPT role, isPinned, uid, and email
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'displayName', 'artistName', 'photoURL', 'bio', 'spotifyUrl', 'appleMusicUrl', 'instagramUrl', 
-            'points', 'highScore', 'acceptedEcosystem', 'updatedAt', 'avatarSelfieUrl', 
-            'avatarUrl', 'hasAvatar', 'geminiApiKey', 'category', 'plan', 'isSubscribed', 'adminPointsSeeded',
-            'unlockedCharacters', 'unlockedBeats'
-          ])
-        )
-      );
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.uid == resource.data.uid);
       
       allow delete: if isAdmin();
     }

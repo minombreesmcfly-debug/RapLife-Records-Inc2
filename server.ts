@@ -215,7 +215,20 @@ for (const rDir of requiredDirs) {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  
+  let port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const portArgIdx = process.argv.findIndex(arg => arg === '--port' || arg === '-p');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    const parsed = parseInt(process.argv[portArgIdx + 1], 10);
+    if (!isNaN(parsed)) port = parsed;
+  }
+  const PORT = port;
+
+  let host = process.env.HOST || '0.0.0.0';
+  const hostArgIdx = process.argv.findIndex(arg => arg === '--host' || arg === '-h');
+  if (hostArgIdx !== -1 && process.argv[hostArgIdx + 1]) {
+    host = process.argv[hostArgIdx + 1];
+  }
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -1735,8 +1748,8 @@ CRITICAL STYLING RULES:
     });
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SERVER] Running at http://0.0.0.0:${PORT}`);
+  app.listen(PORT, host, () => {
+    console.log(`[SERVER] Running at http://${host}:${PORT}`);
   });
 }
 
