@@ -40,8 +40,8 @@ const DEFAULT_RADIO_FALLBACK: Track = {
   id: 'raplife-live-radio-stream',
   artistId: 'raplife-records',
   artistName: 'RAPLIFE RADIO 99.1 FM',
-  title: 'Hip-Hop Calle-Urban Live Stream',
-  audioUrl: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3',
+  title: 'RapLife Official Radio Station',
+  audioUrl: '/assets/radio/Welcome.mp3',
   coverUrl: '/assets/player_idle.png',
   fullName: 'RapLife Live Station'
 };

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
+import { uploadToCloudinary } from '../lib/cloudinary';
 import { Upload, Music, Image as ImageIcon, CheckCircle, AlertCircle, Disc } from 'lucide-react';
 
 const UploadTrackView = () => {
@@ -81,36 +82,71 @@ const UploadTrackView = () => {
 
         let uploadSuccess = false;
 
-        // Try Node server endpoint first if running on Express host
+        // 1. Prioritize Cloudinary Upload for seamless streaming across Vercel and all devices
         try {
-          const formData = new FormData();
-          formData.append('track', trackFile!);
-          if (coverFile) formData.append('cover', coverFile);
-          formData.append('userId', user.uid);
-          formData.append('title', title);
-          formData.append('artistName', artistName);
-
-          const response = await fetch('/api/upload-track', {
-            method: 'POST',
-            body: formData,
+          console.log("[UPLOAD] Uploading audio track to Cloudinary...");
+          const cldTrackResult = await uploadToCloudinary(trackFile!, {
+            folder: 'raplife_tracks',
+            resourceType: 'video',
+            onProgress: (pct) => setProgress(Math.max(20, Math.min(80, pct)))
           });
 
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              const resData = await response.json();
-              if (resData && resData.audioUrl) {
-                finalAudioUrl = resData.audioUrl;
-                finalCoverUrl = resData.coverUrl || '/assets/player_idle.png';
-                uploadSuccess = true;
+          if (cldTrackResult && cldTrackResult.secure_url) {
+            finalAudioUrl = cldTrackResult.secure_url;
+            uploadSuccess = true;
+            console.log("[UPLOAD] Cloudinary audio upload success:", finalAudioUrl);
+
+            // Upload cover if present
+            if (coverFile) {
+              try {
+                const cldCoverResult = await uploadToCloudinary(coverFile, {
+                  folder: 'raplife_covers',
+                  resourceType: 'image'
+                });
+                finalCoverUrl = cldCoverResult.secure_url || '/assets/player_idle.png';
+              } catch (_) {
+                finalCoverUrl = '/assets/player_idle.png';
               }
+            } else {
+              finalCoverUrl = '/assets/player_idle.png';
             }
           }
-        } catch (serverErr) {
-          console.warn("[UPLOAD] Server proxy endpoint unavailable, using direct cloud storage:", serverErr);
+        } catch (cldErr: any) {
+          console.warn("[UPLOAD] Cloudinary direct upload error, attempting fallbacks:", cldErr.message);
         }
 
-        // Direct Firebase Storage Fallback for Vercel and serverless environments
+        // 2. Try Node server endpoint fallback if running on Express host
+        if (!uploadSuccess) {
+          try {
+            const formData = new FormData();
+            formData.append('track', trackFile!);
+            if (coverFile) formData.append('cover', coverFile);
+            formData.append('userId', user.uid);
+            formData.append('title', title);
+            formData.append('artistName', artistName);
+
+            const response = await fetch('/api/upload-track', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (response.ok) {
+              const contentType = response.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                const resData = await response.json();
+                if (resData && resData.audioUrl) {
+                  finalAudioUrl = resData.audioUrl;
+                  finalCoverUrl = resData.coverUrl || '/assets/player_idle.png';
+                  uploadSuccess = true;
+                }
+              }
+            }
+          } catch (serverErr) {
+            console.warn("[UPLOAD] Server proxy endpoint unavailable, using direct cloud storage:", serverErr);
+          }
+        }
+
+        // 3. Direct Firebase Storage Fallback for Vercel and serverless environments
         if (!uploadSuccess) {
           console.log("[UPLOAD] Uploading directly to Firebase Storage with progress listener...");
           const cleanAudioName = `tracks/${Date.now()}_${trackFile!.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;

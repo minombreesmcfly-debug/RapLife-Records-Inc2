@@ -5,7 +5,17 @@ import { useMusic } from '../context/MusicContext';
 import { collection, query, getDocs, doc, updateDoc, addDoc, serverTimestamp, where, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
-import { Shield, Upload, Star, Music, User, Check, X, Radio, PlayCircle, PlusCircle, Pencil, Trash, Link2, ChevronUp, ChevronDown, Save, Play, Users, Search, SlidersHorizontal, Rocket, Phone, Mail, MessageSquare, Gift, RotateCcw, Folder, Copy, Film, Video, ListVideo, SkipForward, SkipBack, ExternalLink, RefreshCw, Disc, Volume2, Pause, Download } from 'lucide-react';
+import { 
+  Shield, Upload, Star, Music, User, Check, X, Radio, PlayCircle, PlusCircle, 
+  Pencil, Trash, Link2, ChevronUp, ChevronDown, Save, Play, Users, Search, 
+  SlidersHorizontal, Rocket, Phone, Mail, MessageSquare, Gift, RotateCcw, Folder, 
+  Copy, Film, Video, ListVideo, SkipForward, SkipBack, ExternalLink, RefreshCw, 
+  Disc, Volume2, Pause, Download, Image as ImageIcon, Cloud, Key, Eye, EyeOff, Clipboard
+} from 'lucide-react';
+import { 
+  uploadToCloudinary, getCloudinaryConfig, saveCloudinaryConfig, 
+  testCloudinaryConnection, CloudinaryConfig 
+} from '../lib/cloudinary';
 import { VideoItem, VideoPlaylistConfig } from '../types';
 import IntroVideo from '../components/IntroVideo';
 
@@ -31,6 +41,194 @@ const AdminView = () => {
   const [spotifyInput, setSpotifyInput] = useState('');
   const [savingSpotify, setSavingSpotify] = useState(false);
   const [radioStatus, setRadioStatus] = useState<{ type: 'success' | 'error' | '', message: string }>({ type: '', message: '' });
+
+  // Cloudinary Settings State
+  const [cloudinarySettings, setCloudinarySettings] = useState<CloudinaryConfig>({
+    cloudName: 'rmyvnech',
+    apiKey: '',
+    apiSecret: 'XDWRGIqsyiQYfs4qCwCQaHJ12po',
+    uploadPreset: ''
+  });
+  const [savingCloudinary, setSavingCloudinary] = useState(false);
+  const [testingCloudinary, setTestingCloudinary] = useState(false);
+  const [cloudinaryTestResult, setCloudinaryTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showApiSecret, setShowApiSecret] = useState(false);
+
+  // Custom Wallpaper State
+  const [currentWallpaper, setCurrentWallpaper] = useState<string>(() => {
+    try {
+      return localStorage.getItem('raplife_wallpaper') || '/graffiti_wall_bg.jpg';
+    } catch {
+      return '/graffiti_wall_bg.jpg';
+    }
+  });
+  const [uploadingWallpaper, setUploadingWallpaper] = useState(false);
+  const [wallpaperUploadPercent, setWallpaperUploadPercent] = useState<number | null>(null);
+  const [wallpaperModalOpen, setWallpaperModalOpen] = useState(false);
+  const [wallpaperDragActive, setWallpaperDragActive] = useState(false);
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch Cloudinary and Theme config on mount
+  useEffect(() => {
+    getCloudinaryConfig().then(cfg => {
+      setCloudinarySettings(cfg);
+    });
+
+    const fetchThemeWallpaper = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, 'config', 'theme'));
+        if (docSnap.exists() && docSnap.data().wallpaperUrl) {
+          setCurrentWallpaper(docSnap.data().wallpaperUrl);
+        }
+      } catch (_) {}
+    };
+    fetchThemeWallpaper();
+  }, []);
+
+  // Global Ctrl+V / Cmd+V paste listener for immediate wallpaper replacement
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            console.log("[WALLPAPER] Image detected in clipboard paste (Ctrl+V)");
+            await processWallpaperUpload(file);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, []);
+
+  const processWallpaperUpload = async (file: File | Blob) => {
+    setUploadingWallpaper(true);
+    setWallpaperUploadPercent(20);
+    try {
+      let finalUrl = '';
+
+      // 1. Upload to Cloudinary for permanent worldwide CDN delivery
+      try {
+        const cldRes = await uploadToCloudinary(file, {
+          folder: 'raplife_wallpapers',
+          resourceType: 'image',
+          onProgress: (p) => setWallpaperUploadPercent(Math.max(20, Math.min(85, p)))
+        });
+        if (cldRes && cldRes.secure_url) {
+          finalUrl = cldRes.secure_url;
+        }
+      } catch (cldErr) {
+        console.warn("[WALLPAPER] Cloudinary direct upload notice:", cldErr);
+      }
+
+      // 2. Also send to local update-wallpaper endpoint if running on Node server
+      try {
+        const formData = new FormData();
+        formData.append('wallpaper', file);
+        const srvRes = await fetch('/api/update-wallpaper', { method: 'POST', body: formData });
+        if (srvRes.ok) {
+          const srvData = await srvRes.json();
+          if (!finalUrl && srvData.wallpaperUrl) finalUrl = srvData.wallpaperUrl;
+        }
+      } catch (_) {}
+
+      if (!finalUrl) {
+        finalUrl = await compressAndGetBase64(file as File);
+      }
+
+      setWallpaperUploadPercent(90);
+
+      // 3. Persist in Firestore config/theme document
+      await setDoc(doc(db, 'config', 'theme'), {
+        wallpaperUrl: finalUrl,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      // 4. Update localStorage and CSS variable immediately
+      setCurrentWallpaper(finalUrl);
+      try {
+        localStorage.setItem('raplife_wallpaper', finalUrl);
+        document.documentElement.style.setProperty('--app-wallpaper-url', `url('${finalUrl}')`);
+      } catch (_) {}
+
+      setWallpaperUploadPercent(100);
+      alert('¡Nuevo wallpaper aplicado con éxito! El fondo de toda la web ha sido actualizado.');
+      setWallpaperModalOpen(false);
+    } catch (err: any) {
+      console.error("[WALLPAPER] Error processing wallpaper upload:", err);
+      alert('Error al subir wallpaper: ' + (err.message || 'Error desconocido'));
+    } finally {
+      setUploadingWallpaper(false);
+      setWallpaperUploadPercent(null);
+    }
+  };
+
+  const handleResetWallpaper = async () => {
+    if (!window.confirm('¿Deseas restaurar el wallpaper original de graffiti de RapLife?')) return;
+    try {
+      const defaultUrl = '/graffiti_wall_bg.jpg';
+      await setDoc(doc(db, 'config', 'theme'), {
+        wallpaperUrl: defaultUrl,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      setCurrentWallpaper(defaultUrl);
+      try {
+        localStorage.setItem('raplife_wallpaper', defaultUrl);
+        document.documentElement.style.setProperty('--app-wallpaper-url', `url('${defaultUrl}')`);
+      } catch (_) {}
+
+      alert('¡Fondo original restaurado con éxito!');
+      setWallpaperModalOpen(false);
+    } catch (err: any) {
+      alert('Error al restaurar: ' + err.message);
+    }
+  };
+
+  const handleSaveCloudinaryConfig = async () => {
+    setSavingCloudinary(true);
+    try {
+      await saveCloudinaryConfig(cloudinarySettings);
+      alert('¡Configuración de Cloudinary guardada y sincronizada exitosamente!');
+    } catch (err: any) {
+      alert('Error al guardar configuración: ' + (err.message || 'Error desconocido'));
+    } finally {
+      setSavingCloudinary(false);
+    }
+  };
+
+  const handleTestCloudinary = async () => {
+    setTestingCloudinary(true);
+    setCloudinaryTestResult(null);
+    try {
+      await saveCloudinaryConfig(cloudinarySettings);
+      const res = await testCloudinaryConnection();
+      setCloudinaryTestResult(res);
+      if (res.success) {
+        alert(res.message);
+      } else {
+        alert(`Error en prueba de Cloudinary: ${res.message}`);
+      }
+    } catch (err: any) {
+      setCloudinaryTestResult({ success: false, message: err.message || 'Fallo de conexión' });
+      alert('Error al probar Cloudinary: ' + err.message);
+    } finally {
+      setTestingCloudinary(false);
+    }
+  };
 
   // Registered Users Search & Role Management State
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -1040,36 +1238,65 @@ const AdminView = () => {
       setUploadingLocalRadio(true);
       try {
         let audioUrl = '';
-
-        // First attempt: Server API endpoint /api/upload-radio-local
         let uploadSuccess = false;
-        try {
-          setUploadProgressText('SUBIENDO AL SERVIDOR LOCAL...');
-          setUploadPercent(20);
-          const formData = new FormData();
-          formData.append('track', localRadioFile);
 
-          const response = await fetch('/api/upload-radio-local', {
-            method: 'POST',
-            body: formData,
+        // 1. Primary Strategy: Cloudinary Direct CDN Upload (Plays everywhere, including Vercel)
+        try {
+          setUploadProgressText('SUBIENDO AUDIO A CLOUDINARY...');
+          setUploadPercent(20);
+          const cldRes = await uploadToCloudinary(localRadioFile, {
+            folder: 'raplife_radio',
+            resourceType: 'video',
+            onProgress: (pct) => setUploadPercent(Math.max(20, Math.min(85, pct)))
           });
 
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              const resData = await response.json();
-              if (resData && resData.audioUrl) {
-                audioUrl = resData.audioUrl;
-                uploadSuccess = true;
-                setUploadPercent(80);
-              }
-            }
+          if (cldRes && cldRes.secure_url) {
+            audioUrl = cldRes.secure_url;
+            uploadSuccess = true;
+            setUploadPercent(85);
+            console.log("[RADIO UPLOAD] Audio successfully uploaded to Cloudinary:", audioUrl);
           }
-        } catch (serverErr) {
-          console.warn("[RADIO UPLOAD] Server proxy endpoint unavailable, switching to Firebase Storage:", serverErr);
+        } catch (cldErr: any) {
+          console.warn("[RADIO UPLOAD] Cloudinary direct upload error, attempting server/storage fallback:", cldErr.message);
         }
 
-        // Fallback: Direct Firebase Storage upload if local endpoint fails or on serverless Vercel
+        // 2. Also send to local server if running locally
+        try {
+          const formData = new FormData();
+          formData.append('track', localRadioFile);
+          fetch('/api/upload-radio-local', { method: 'POST', body: formData }).catch(() => {});
+        } catch (_) {}
+
+        // 3. Fallback: Server API endpoint /api/upload-radio-local if Cloudinary failed
+        if (!uploadSuccess) {
+          try {
+            setUploadProgressText('SUBIENDO AL SERVIDOR LOCAL...');
+            setUploadPercent(40);
+            const formData = new FormData();
+            formData.append('track', localRadioFile);
+
+            const response = await fetch('/api/upload-radio-local', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (response.ok) {
+              const contentType = response.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                const resData = await response.json();
+                if (resData && resData.audioUrl) {
+                  audioUrl = resData.audioUrl;
+                  uploadSuccess = true;
+                  setUploadPercent(85);
+                }
+              }
+            }
+          } catch (serverErr) {
+            console.warn("[RADIO UPLOAD] Server proxy endpoint unavailable:", serverErr);
+          }
+        }
+
+        // 4. Final Fallback: Direct Firebase Storage upload if others failed
         if (!uploadSuccess) {
           console.log("[RADIO UPLOAD] Uploading directly to Firebase Storage with resumable progress...");
           setUploadProgressText('SUBIENDO A FIREBASE STORAGE...');
@@ -1083,8 +1310,8 @@ const AdminView = () => {
           audioUrl = await new Promise<string>((resolve, reject) => {
             const timeoutId = setTimeout(() => {
               uploadTask.cancel();
-              reject(new Error("La subida a Firebase Storage tardó demasiado tiempo. Verifica si tus reglas de Firebase Storage permiten escrituras sin auth o utiliza 'INYECTAR URL DIRECTA'."));
-            }, 120000);
+              reject(new Error("La subida tardó demasiado tiempo. Verifica tus credenciales o utiliza 'INYECTAR URL DIRECTA'."));
+            }, 60000);
 
             uploadTask.on(
               'state_changed',
@@ -1097,7 +1324,7 @@ const AdminView = () => {
               (error) => {
                 clearTimeout(timeoutId);
                 console.error("[RADIO UPLOAD ERROR]", error);
-                reject(new Error(`Error de Firebase Storage (${error.code}): ${error.message}`));
+                reject(new Error(`Error de Storage (${error.code}): ${error.message}`));
               },
               async () => {
                 clearTimeout(timeoutId);
@@ -1403,28 +1630,49 @@ const AdminView = () => {
       }
       setUploadingLocalBeat(true);
       setBeatUploadPercent(10);
-      setBeatUploadProgressText('SUBIENDO BEAT A ASSETS/BEATS...');
+      setBeatUploadProgressText('PREPARANDO SUBIDA DE BEAT...');
 
       try {
-        const formData = new FormData();
-        formData.append('track', localBeatFile);
+        let audioUrl = '';
+        let uploadSuccess = false;
 
-        const response = await fetch('/api/upload-beat-local', {
-          method: 'POST',
-          body: formData
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || 'Error al subir beat');
+        // 1. Primary Strategy: Direct Cloudinary CDN upload for permanent Vercel availability
+        setBeatUploadProgressText('SUBIENDO BEAT A CLOUDINARY...');
+        setBeatUploadPercent(20);
+        try {
+          const cldRes = await uploadToCloudinary(localBeatFile, {
+            folder: 'raplife_beats',
+            resourceType: 'video',
+            onProgress: (p) => setBeatUploadPercent(Math.max(20, Math.min(85, p)))
+          });
+          if (cldRes && cldRes.secure_url) {
+            audioUrl = cldRes.secure_url;
+            uploadSuccess = true;
+            console.log("[BEAT UPLOAD] Cloudinary upload successful:", audioUrl);
+          }
+        } catch (cldErr: any) {
+          console.warn("[BEAT UPLOAD] Cloudinary direct upload notice:", cldErr.message);
         }
 
-        const result = await response.json();
-        setBeatUploadPercent(75);
+        // 2. Also send to local server if available
+        try {
+          const formData = new FormData();
+          formData.append('track', localBeatFile);
+          const srvRes = await fetch('/api/upload-beat-local', { method: 'POST', body: formData });
+          if (srvRes.ok) {
+            const srvData = await srvRes.json();
+            if (!audioUrl && srvData.audioUrl) audioUrl = srvData.audioUrl;
+          }
+        } catch (_) {}
+
+        if (!audioUrl) {
+          audioUrl = `/assets/beats/${localBeatFile.name}`;
+        }
+
+        setBeatUploadPercent(85);
         setBeatUploadProgressText('SINCRONIZANDO CON BASE DE DATOS...');
 
         // Register in Firestore tracks
-        const audioUrl = result.audioUrl || `/assets/beats/${result.fileName || localBeatFile.name}`;
         const baseTitle = localBeatFile.name.replace(/\.[^/.]+$/, "").replace(/^[Bb]eat[_-]/, '').replace(/[_-]/g, ' ').trim();
         
         try {
@@ -1721,20 +1969,277 @@ const AdminView = () => {
           <h1 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter underline decoration-brand-yellow/30">PANEL DE CONTROL</h1>
           <p className="text-gray-500 font-bold uppercase tracking-widest text-sm mt-1">Gesti&oacute;n maestra de RAPLIFE RECORDS INC.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <a
-            href="/graffiti_wall_bg.jpg"
-            download="graffiti_wall_bg.jpg"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2.5 bg-brand-yellow text-black font-black uppercase text-xs rounded-xl shadow-glow hover:scale-105 active:scale-95 transition-all cursor-pointer"
-            title="Descargar imagen HD del fondo de muro de grafiti urbano"
+        <div className="flex items-center gap-3 flex-wrap justify-center md:justify-end">
+          <input
+            type="file"
+            ref={wallpaperInputRef}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) processWallpaperUpload(file);
+            }}
+            accept="image/*"
+            className="hidden"
+          />
+
+          <button
+            onClick={() => wallpaperInputRef.current?.click()}
+            disabled={uploadingWallpaper}
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-yellow text-black font-black uppercase text-xs rounded-xl shadow-glow hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            title="Subir un nuevo wallpaper o presiona Ctrl+V para pegar directamente"
           >
-            <Download size={15} />
-            <span>DESCARGAR WALLPAPER HD</span>
-          </a>
+            <ImageIcon size={15} />
+            <span>{uploadingWallpaper ? 'SUBIENDO FONDO...' : 'SUBIR WALLPAPER'}</span>
+          </button>
+
+          <button
+            onClick={() => setWallpaperModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl text-xs font-black uppercase transition-all cursor-pointer active:scale-95"
+            title="Abrir gestor de fondo y pegar imagen con Ctrl+V"
+          >
+            <Clipboard size={14} className="text-brand-yellow" />
+            <span>PEGAR (CTRL+V)</span>
+          </button>
+
+          {currentWallpaper !== '/graffiti_wall_bg.jpg' && (
+            <button
+              onClick={handleResetWallpaper}
+              className="px-2.5 py-2 bg-neutral-800 hover:bg-red-500/20 text-gray-400 hover:text-red-400 border border-white/10 rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer"
+              title="Restaurar fondo graffiti original"
+            >
+              RESTAURAR FONDO
+            </button>
+          )}
         </div>
       </header>
+
+      {/* WALLPAPER MANAGER MODAL / PANEL */}
+      {wallpaperModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div 
+            className="bg-brand-dark border-4 border-brand-yellow rounded-3xl max-w-xl w-full p-6 md:p-8 space-y-6 text-left relative shadow-2xl"
+            onDragOver={(e) => { e.preventDefault(); setWallpaperDragActive(true); }}
+            onDragLeave={() => setWallpaperDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setWallpaperDragActive(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file && file.type.startsWith('image/')) {
+                processWallpaperUpload(file);
+              }
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-brand-yellow text-black rounded-xl">
+                  <ImageIcon size={22} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black italic uppercase tracking-tighter text-white">REEMPLAZAR WALLPAPER</h3>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">FONDO GLOBAL DE LA WEB DE RAPLIFE</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setWallpaperModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-white rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Current Wallpaper Preview */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">FONDO ACTUAL ACTIVO:</span>
+              <div className="h-36 rounded-2xl overflow-hidden border-2 border-white/10 relative group">
+                <img 
+                  src={currentWallpaper} 
+                  alt="Current Wallpaper" 
+                  className="w-full h-full object-cover object-center"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-3">
+                  <span className="text-[10px] font-mono text-brand-yellow truncate max-w-full">
+                    {currentWallpaper}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Drop / Paste Zone */}
+            <div 
+              onClick={() => wallpaperInputRef.current?.click()}
+              className={`p-6 border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all ${
+                wallpaperDragActive 
+                  ? 'border-brand-yellow bg-brand-yellow/10 scale-[1.02]' 
+                  : 'border-white/20 hover:border-brand-yellow/60 bg-black/40 hover:bg-black/60'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-3">
+                <div className="p-3 bg-brand-yellow/20 text-brand-yellow rounded-2xl">
+                  <Upload size={28} />
+                </div>
+                <div>
+                  <p className="text-sm font-black italic uppercase text-white">
+                    {uploadingWallpaper ? 'SUBIENDO Y APLICANDO WALLPAPER...' : 'HAZ CLIC AQUÍ O ARRASTRA TU IMAGEN'}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Formatos JPG, PNG, WEBP de alta resolución recomendados (1920x1080 o superior).
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-yellow/15 border border-brand-yellow/30 text-brand-yellow rounded-full text-[10px] font-black uppercase">
+                  <Clipboard size={12} />
+                  <span>SOPORTE CTRL+V ACTIVO: PEGA DIRECTAMENTE AQUÍ</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                onClick={handleResetWallpaper}
+                className="px-4 py-2.5 bg-neutral-900 hover:bg-red-500/20 text-gray-400 hover:text-red-400 border border-white/10 rounded-xl text-xs font-black uppercase transition-all"
+              >
+                RESTAURAR ORIGINAL
+              </button>
+
+              <button
+                onClick={() => setWallpaperModalOpen(false)}
+                className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-black uppercase transition-all"
+              >
+                CERRAR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLOUDINARY INTEGRATION & CREDENTIALS CARD */}
+      <div className="bg-brand-dark p-6 md:p-8 rounded-[2rem] border-4 border-boombox-gray space-y-6 text-left relative overflow-hidden group">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-sky-500/20 text-sky-400 rounded-2xl border border-sky-500/30">
+              <Cloud size={26} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-black italic tracking-tighter uppercase text-white">CONEXIÓN CLOUDINARY</h2>
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  ACTIVO ({cloudinarySettings.cloudName || 'rmyvnech'})
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mt-0.5">
+                Almacenamiento global CDN para canciones, beats y pistas de la radio sin cortes en Vercel
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTestCloudinary}
+              disabled={testingCloudinary}
+              className="px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={testingCloudinary ? 'animate-spin' : ''} />
+              <span>{testingCloudinary ? 'PROBANDO...' : 'PROBAR CONEXIÓN'}</span>
+            </button>
+
+            <button
+              onClick={handleSaveCloudinaryConfig}
+              disabled={savingCloudinary}
+              className="px-5 py-2 bg-brand-yellow hover:bg-yellow-400 text-black rounded-xl text-xs font-black uppercase transition-all shadow-glow cursor-pointer active:scale-95 disabled:opacity-50"
+            >
+              <span>{savingCloudinary ? 'GUARDANDO...' : 'GUARDAR CREDENCIALES'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Inputs Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+              <span>CLOUD NAME</span>
+              <span className="text-brand-yellow">*</span>
+            </label>
+            <input
+              type="text"
+              value={cloudinarySettings.cloudName}
+              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, cloudName: e.target.value }))}
+              placeholder="rmyvnech"
+              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+              <span>API KEY (CLOUDINARY)</span>
+              <span className="text-gray-500 text-[9px]">(Ej: 15 dígitos)</span>
+            </label>
+            <input
+              type="text"
+              value={cloudinarySettings.apiKey || ''}
+              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, apiKey: e.target.value }))}
+              placeholder="Pega tu API Key de Cloudinary"
+              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                <span>API SECRET</span>
+                <span className="text-brand-yellow">*</span>
+              </label>
+              <button 
+                type="button" 
+                onClick={() => setShowApiSecret(!showApiSecret)}
+                className="text-[9px] text-gray-400 hover:text-white uppercase font-bold"
+              >
+                {showApiSecret ? 'Ocultar' : 'Ver'}
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                type={showApiSecret ? 'text' : 'password'}
+                value={cloudinarySettings.apiSecret || ''}
+                onChange={(e) => setCloudinarySettings(prev => ({ ...prev, apiSecret: e.target.value }))}
+                placeholder="XDWRGIqsyiQYfs4qCwCQaHJ12po"
+                className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiSecret(!showApiSecret)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+              >
+                {showApiSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+              <span>UPLOAD PRESET (UNSIGNED)</span>
+              <span className="text-gray-500 text-[9px]">(Opcional)</span>
+            </label>
+            <input
+              type="text"
+              value={cloudinarySettings.uploadPreset || ''}
+              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, uploadPreset: e.target.value }))}
+              placeholder="Ej: raplife_preset o ml_default"
+              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
+            />
+          </div>
+        </div>
+
+        {cloudinaryTestResult && (
+          <div className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
+            cloudinaryTestResult.success 
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+              : 'bg-red-500/10 border-red-500/30 text-red-400'
+          }`}>
+            {cloudinaryTestResult.success ? <Check size={14} /> : <X size={14} />}
+            <span>{cloudinaryTestResult.message}</span>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
         {/* Left Column: Unified Radio Controls */}

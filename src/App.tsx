@@ -4,7 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { MusicProvider, useMusic } from './context/MusicContext';
 import { Home, User, Radio, Gamepad2, Settings, LogIn, LogOut, Mic2, Heart, PlusCircle, ShieldCheck, Play, Upload, Volume2, Volume1, VolumeX, Shirt, X, AlertTriangle, ExternalLink, Compass, Monitor, Smartphone, Square, Pause, Rewind, FastForward, SkipForward } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { signInWithGoogle, signInWithGoogleRedirect, getRedirectResultHelper, logoutUser } from './lib/firebase';
+import { signInWithGoogle, signInWithGoogleRedirect, getRedirectResultHelper, logoutUser, db } from './lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 import { playBubblePop, playSoftClick } from './lib/sounds';
@@ -331,6 +332,46 @@ const AppContent = () => {
   const [isLoginPending, setIsLoginPending] = React.useState(false);
   const [showLoginModal, setShowLoginModal] = React.useState(false);
 
+  // Real-time custom wallpaper state synced across all devices and Vercel
+  const [activeWallpaperUrl, setActiveWallpaperUrl] = React.useState<string>(() => {
+    try {
+      return localStorage.getItem('raplife_wallpaper') || '/graffiti_wall_bg.jpg';
+    } catch {
+      return '/graffiti_wall_bg.jpg';
+    }
+  });
+
+  React.useEffect(() => {
+    // 1. Initial CSS variable setup
+    try {
+      const saved = localStorage.getItem('raplife_wallpaper');
+      if (saved) {
+        document.documentElement.style.setProperty('--app-wallpaper-url', `url('${saved}')`);
+      }
+    } catch (_) {}
+
+    // 2. Real-time Firestore sync from config/theme
+    try {
+      const docRef = doc(db, 'config', 'theme');
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.wallpaperUrl) {
+            setActiveWallpaperUrl(data.wallpaperUrl);
+            try {
+              localStorage.setItem('raplife_wallpaper', data.wallpaperUrl);
+              document.documentElement.style.setProperty('--app-wallpaper-url', `url('${data.wallpaperUrl}')`);
+            } catch (_) {}
+          }
+        }
+      }, (err) => {
+        console.warn("Theme wallpaper real-time listener notice:", err);
+      });
+
+      return () => unsub();
+    } catch (_) {}
+  }, []);
+
   // Check for redirect sign-in results on app mount
   React.useEffect(() => {
     const checkRedirect = async () => {
@@ -407,23 +448,23 @@ const AppContent = () => {
         className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden select-none"
       >
         <img 
-          src="/graffiti_wall_bg.jpg" 
-          alt="Graffiti Wall" 
+          src={activeWallpaperUrl || "/graffiti_wall_bg.jpg"} 
+          alt="Wallpaper" 
           referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.currentTarget;
             if (!target.dataset.triedFallback1) {
               target.dataset.triedFallback1 = 'true';
-              target.src = '/assets/graffiti_wall_bg.jpg';
+              target.src = '/graffiti_wall_bg.jpg';
             } else if (!target.dataset.triedFallback2) {
               target.dataset.triedFallback2 = 'true';
-              target.src = '/assets/dark_brick_graffiti.jpg';
+              target.src = '/assets/graffiti_wall_bg.jpg';
             } else if (!target.dataset.triedFallback3) {
               target.dataset.triedFallback3 = 'true';
-              target.src = '/assets/dark_graffiti_brick_wall.jpg';
+              target.src = '/assets/dark_brick_graffiti.jpg';
             }
           }}
-          className="w-full h-full object-cover object-center opacity-70 select-none"
+          className="w-full h-full object-cover object-center opacity-70 select-none transition-all duration-700"
         />
         
         {/* URBAN SPRAY-PAINT STREET TAGS OVERLAY */}

@@ -1,3 +1,4 @@
+import './src/lib/sanitize-env.js';
 import express from 'express';
 import path from 'path';
 import multer from 'multer';
@@ -9,6 +10,55 @@ import { GoogleGenAI } from '@google/genai';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
+import { v2 as cloudinary } from 'cloudinary';
+
+// Cloudinary initialization with credentials provided
+const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech';
+const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY || process.env.VITE_CLOUDINARY_API_KEY || '';
+const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET || process.env.VITE_CLOUDINARY_API_SECRET || 'XDWRGIqsyiQYfs4qCwCQaHJ12po';
+
+try {
+  if (
+    process.env.CLOUDINARY_URL &&
+    process.env.CLOUDINARY_URL.startsWith('cloudinary://') &&
+    !process.env.CLOUDINARY_URL.includes('<your_api_key>')
+  ) {
+    cloudinary.config({
+      cloudinary_url: process.env.CLOUDINARY_URL
+    });
+    console.log(`[SERVER] Initialized Cloudinary via CLOUDINARY_URL`);
+  } else {
+    cloudinary.config({
+      cloud_name: cloudinaryCloudName,
+      api_key: cloudinaryApiKey || undefined,
+      api_secret: cloudinaryApiSecret || undefined,
+      secure: true
+    });
+    console.log(`[SERVER] Initialized Cloudinary for cloud: ${cloudinaryCloudName} (hasSecret: ${!!cloudinaryApiSecret})`);
+  }
+} catch (cErr) {
+  console.warn('[SERVER] Warning initializing Cloudinary config:', cErr);
+}
+
+async function uploadToCloudinaryServer(
+  buffer: Buffer, 
+  options: { folder?: string; resourceType?: 'auto' | 'video' | 'image' | 'raw'; publicId?: string }
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: options.folder || 'raplife_records',
+        resource_type: options.resourceType || 'auto',
+        public_id: options.publicId
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
 
 function getAppDirectory(): string {
   if (typeof __dirname !== 'undefined') {
@@ -1094,7 +1144,7 @@ CRITICAL STYLING RULES:
     }
   });
 
-  // API to upload local radio files directly to public/assets/radio
+  // API to upload local radio files directly to public/assets/radio with Cloudinary auto-sync
   app.post('/api/upload-radio-local', upload.single('track'), async (req: any, res: any) => {
     try {
       if (!req.file) {
@@ -1120,15 +1170,52 @@ CRITICAL STYLING RULES:
         fs.mkdirSync(prodPath, { recursive: true });
       }
 
-      // Save to both
+      // Save locally to both
       const devDestination = path.join(devPath, fileName);
       const prodDestination = path.join(prodPath, fileName);
       
       fs.writeFileSync(devDestination, buffer);
       fs.writeFileSync(prodDestination, buffer);
-
       console.log(`[API] Guardado archivo de radio local con éxito en: ${devDestination} y ${prodDestination}`);
-      res.json({ success: true, fileName: fileName, audioUrl: `/assets/radio/${fileName}` });
+
+      // Auto-upload to Cloudinary for instant global streaming across Vercel deployments
+      let audioUrl = `/assets/radio/${fileName}`;
+      try {
+        const cldResult = await uploadToCloudinaryServer(buffer, {
+          folder: 'raplife_radio',
+          resourceType: 'video',
+          publicId: `radio_${Date.now()}_${path.parse(fileName).name.replace(/[^a-zA-Z0-9_]/g, '_')}`
+        });
+        if (cldResult && cldResult.secure_url) {
+          audioUrl = cldResult.secure_url;
+          console.log(`[API] Radio file uploaded to Cloudinary: ${audioUrl}`);
+        }
+      } catch (cldErr: any) {
+        console.warn(`[API] Cloudinary upload warning (using local fallback URL):`, cldErr.message);
+      }
+
+      // Sync with Firestore tracks collection
+      try {
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          await firestoreDb.collection('tracks').add({
+            artistId: 'ADMIN',
+            artistName: 'RAPLIFE RADIO',
+            title: req.body.title || path.parse(fileName).name.replace(/[_-]/g, ' ').trim(),
+            audioUrl: audioUrl,
+            coverUrl: '/assets/player_idle.png',
+            isRadioInterstitial: true,
+            approved: true,
+            status: 'approved',
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          console.log(`[API] Track registered in Firestore for radio: ${fileName}`);
+        }
+      } catch (dbErr) {
+        console.warn('[API] Firestore track registration notice:', dbErr);
+      }
+
+      res.json({ success: true, fileName: fileName, audioUrl });
     } catch (err: any) {
       console.error('[API] Error guardando archivo local de radio:', err);
       res.status(500).json({ error: err.message || 'Error al guardar archivo local de radio' });
@@ -1457,9 +1544,25 @@ CRITICAL STYLING RULES:
       
       fs.writeFileSync(devDestination, buffer);
       fs.writeFileSync(prodDestination, buffer);
-
       console.log(`[API] Guardado Beat local con éxito en: ${devDestination} y ${prodDestination}`);
-      res.json({ success: true, fileName: finalFileName, audioUrl: `/assets/beats/${finalFileName}` });
+
+      // Auto-upload Beat to Cloudinary for permanent CDN streaming on Vercel
+      let audioUrl = `/assets/beats/${finalFileName}`;
+      try {
+        const cldResult = await uploadToCloudinaryServer(buffer, {
+          folder: 'raplife_beats',
+          resourceType: 'video',
+          publicId: `beat_${Date.now()}_${path.parse(finalFileName).name.replace(/[^a-zA-Z0-9_]/g, '_')}`
+        });
+        if (cldResult && cldResult.secure_url) {
+          audioUrl = cldResult.secure_url;
+          console.log(`[API] Beat uploaded to Cloudinary: ${audioUrl}`);
+        }
+      } catch (cldErr: any) {
+        console.warn(`[API] Cloudinary upload for beat notice:`, cldErr.message);
+      }
+
+      res.json({ success: true, fileName: finalFileName, audioUrl });
     } catch (err: any) {
       console.error('[API] Error guardando archivo local de beat:', err);
       res.status(500).json({ error: err.message || 'Error al guardar archivo local de beat' });
@@ -1594,6 +1697,21 @@ CRITICAL STYLING RULES:
 
       // Helper to upload a file with fallback for bucket, and local disk fallback if all else fails
       const uploadWithFallback = async (filePath: string, buffer: Buffer, contentType: string) => {
+        // Try Cloudinary first for fast worldwide CDN audio/image streaming
+        try {
+          const isAudio = contentType.startsWith('audio') || filePath.includes('tracks/');
+          const cldRes = await uploadToCloudinaryServer(buffer, {
+            folder: filePath.startsWith('tracks') ? 'raplife_tracks' : 'raplife_covers',
+            resourceType: isAudio ? 'video' : 'image'
+          });
+          if (cldRes && cldRes.secure_url) {
+            console.log(`[API] Uploaded ${filePath} to Cloudinary: ${cldRes.secure_url}`);
+            return cldRes.secure_url;
+          }
+        } catch (cldErr: any) {
+          console.log(`[API] Cloudinary attempt notice:`, cldErr.message);
+        }
+
         const tryBuckets = [
           firebaseConfig.storageBucket,
           `${firebaseConfig.projectId}.appspot.com`,
@@ -1682,6 +1800,147 @@ CRITICAL STYLING RULES:
         error: error.message || 'Error interno del servidor admin',
         code: error.code || 'unknown'
       });
+    }
+  });
+
+  // Dedicated Cloudinary direct upload endpoint
+  app.post('/api/cloudinary-upload', upload.single('file'), async (req: any, res: any) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No se recibió ningún archivo para Cloudinary' });
+      }
+
+      const folder = req.body.folder || 'raplife_records';
+      const resourceType = req.body.resourceType || 'auto';
+      const fileName = req.file.originalname || `upload_${Date.now()}`;
+
+      let fileBuffer = req.file.buffer;
+      let finalName = fileName;
+
+      // If audio file, transcode if necessary
+      if (resourceType === 'video' || resourceType === 'auto') {
+        const ext = path.extname(fileName).toLowerCase();
+        if (['.wav', '.mp3', '.ogg', '.m4a'].includes(ext)) {
+          const processed = await ensureMp3(fileBuffer, fileName, req.file.mimetype || 'audio/mpeg');
+          fileBuffer = processed.buffer;
+          finalName = processed.fileName;
+        }
+      }
+
+      const cleanPublicId = `${path.parse(finalName).name.replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`;
+      const result = await uploadToCloudinaryServer(fileBuffer, {
+        folder,
+        resourceType,
+        publicId: cleanPublicId
+      });
+
+      console.log(`[API] Cloudinary upload success: ${result.secure_url}`);
+      res.json({
+        success: true,
+        url: result.url,
+        secure_url: result.secure_url,
+        public_id: result.public_id,
+        format: result.format,
+        duration: result.duration,
+        bytes: result.bytes
+      });
+    } catch (err: any) {
+      console.error('[API] Error in /api/cloudinary-upload:', err);
+      res.status(500).json({ error: err.message || 'Error al subir archivo a Cloudinary' });
+    }
+  });
+
+  // API to update website wallpaper (file upload or pasted image base64)
+  app.post('/api/update-wallpaper', upload.single('wallpaper'), async (req: any, res: any) => {
+    try {
+      let imageBuffer: Buffer | null = null;
+      let mimeType = 'image/jpeg';
+
+      if (req.file) {
+        imageBuffer = req.file.buffer;
+        mimeType = req.file.mimetype || 'image/jpeg';
+      } else if (req.body && req.body.image) {
+        let base64 = req.body.image;
+        if (base64.includes('base64,')) {
+          const parts = base64.split('base64,');
+          mimeType = parts[0].replace('data:', '').replace(';', '') || 'image/jpeg';
+          base64 = parts[1];
+        }
+        imageBuffer = Buffer.from(base64, 'base64');
+      }
+
+      if (!imageBuffer) {
+        return res.status(400).json({ error: 'No se recibió ninguna imagen de wallpaper' });
+      }
+
+      // 1. Save to local disk (public and dist)
+      const publicWallPath = path.join(process.cwd(), 'public', 'graffiti_wall_bg.jpg');
+      const distWallPath = path.join(process.cwd(), 'dist', 'graffiti_wall_bg.jpg');
+      try {
+        fs.writeFileSync(publicWallPath, imageBuffer);
+        if (fs.existsSync(path.join(process.cwd(), 'dist'))) {
+          fs.writeFileSync(distWallPath, imageBuffer);
+        }
+        console.log('[API] Saved wallpaper locally to graffiti_wall_bg.jpg');
+      } catch (fsErr) {
+        console.warn('[API] Local wallpaper file save notice:', fsErr);
+      }
+
+      // 2. Upload to Cloudinary for permanent CDN delivery on Vercel
+      let wallpaperUrl = '/graffiti_wall_bg.jpg';
+      try {
+        const cldResult = await uploadToCloudinaryServer(imageBuffer, {
+          folder: 'raplife_wallpapers',
+          resourceType: 'image',
+          publicId: `wallpaper_${Date.now()}`
+        });
+        if (cldResult && cldResult.secure_url) {
+          wallpaperUrl = cldResult.secure_url;
+          console.log(`[API] Wallpaper uploaded to Cloudinary: ${wallpaperUrl}`);
+        }
+      } catch (cldErr: any) {
+        console.warn('[API] Cloudinary wallpaper upload warning:', cldErr.message);
+      }
+
+      // 3. Sync with Firestore config/theme document
+      try {
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          await firestoreDb.collection('config').doc('theme').set({
+            wallpaperUrl,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          console.log('[API] Synced wallpaper URL in Firestore config/theme');
+        }
+      } catch (dbErr) {
+        console.warn('[API] Firestore theme config save notice:', dbErr);
+      }
+
+      res.json({
+        success: true,
+        wallpaperUrl,
+        message: '¡Wallpaper actualizado con éxito!'
+      });
+    } catch (err: any) {
+      console.error('[API] Error in /api/update-wallpaper:', err);
+      res.status(500).json({ error: err.message || 'Error al actualizar wallpaper' });
+    }
+  });
+
+  // API to get current wallpaper configuration
+  app.get('/api/wallpaper', async (req: any, res: any) => {
+    try {
+      let wallpaperUrl = '/graffiti_wall_bg.jpg';
+      const firestoreDb = getSafeAdminFirestore();
+      if (firestoreDb) {
+        const docSnap = await firestoreDb.collection('config').doc('theme').get();
+        if (docSnap.exists && docSnap.get('wallpaperUrl')) {
+          wallpaperUrl = docSnap.get('wallpaperUrl');
+        }
+      }
+      res.json({ success: true, wallpaperUrl });
+    } catch (_) {
+      res.json({ success: true, wallpaperUrl: '/graffiti_wall_bg.jpg' });
     }
   });
 

@@ -154,12 +154,31 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userName", "phone", "services"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "System configuration such as spotify, radio order, theme wallpaper, and cloudinary settings.",
+      "type": "object",
+      "properties": {
+        "wallpaperUrl": { "type": "string" },
+        "cloudName": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "apiSecret": { "type": "string" },
+        "uploadPreset": { "type": "string" },
+        "playlistId": { "type": "string" },
+        "fileOrder": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
     "users": {
       "schema": "User",
       "description": "Collection of user profiles."
+    },
+    "config": {
+      "schema": "Config",
+      "description": "System-wide settings documents (theme, cloudinary, spotify, etc.)."
     },
     "tracks": {
       "schema": "Track",

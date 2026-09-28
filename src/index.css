@@ -28,7 +28,7 @@ html, body {
   background-color: #08080a;
   background-image: 
     linear-gradient(to bottom, rgba(8, 8, 12, 0.5), rgba(8, 8, 12, 0.65)),
-    url('/graffiti_wall_bg.jpg');
+    var(--app-wallpaper-url, url('/graffiti_wall_bg.jpg'));
   background-attachment: fixed;
   background-size: cover;
   background-position: center center;
