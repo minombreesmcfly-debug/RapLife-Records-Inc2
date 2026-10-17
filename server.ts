@@ -12,21 +12,67 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { v2 as cloudinary } from 'cloudinary';
 
+// Helper to sanitize keys from placeholder text
+function cleanCloudinaryKey(k?: string): string {
+  if (!k) return '';
+  const trimmed = k.trim();
+  if (trimmed.includes('<your_api_key>') || trimmed.startsWith('CLOUDINARY_URL=') || trimmed.includes('cloudinary://')) {
+    return '';
+  }
+  return trimmed;
+}
+
+function cleanCloudinarySecret(s?: string): string {
+  if (!s) return '';
+  const trimmed = s.trim();
+  if (trimmed.includes('<your_api_secret>')) {
+    return '';
+  }
+  return trimmed;
+}
+
 // Cloudinary initialization with credentials provided
-const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech';
-const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY || process.env.VITE_CLOUDINARY_API_KEY || '';
-const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET || process.env.VITE_CLOUDINARY_API_SECRET || 'XDWRGIqsyiQYfs4qCwCQaHJ12po';
+let urlApiKey = '';
+let urlApiSecret = '';
+let urlCloudName = '';
+
+if (
+  process.env.CLOUDINARY_URL &&
+  process.env.CLOUDINARY_URL.startsWith('cloudinary://') &&
+  !process.env.CLOUDINARY_URL.includes('<your_api_key>') &&
+  !process.env.CLOUDINARY_URL.includes('<your_api_secret>')
+) {
+  try {
+    const rawUrl = process.env.CLOUDINARY_URL.trim();
+    const u = new URL(rawUrl);
+    urlApiKey = decodeURIComponent(u.username || '');
+    urlApiSecret = decodeURIComponent(u.password || '');
+    urlCloudName = decodeURIComponent(u.hostname || '');
+  } catch (_) {
+    const m = process.env.CLOUDINARY_URL.match(/cloudinary:\/\/([^:]+):([^@]+)@([^\/\s]+)/);
+    if (m) {
+      urlApiKey = m[1];
+      urlApiSecret = m[2];
+      urlCloudName = m[3];
+    }
+  }
+}
+
+const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME || urlCloudName || process.env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech';
+const cloudinaryApiKey = cleanCloudinaryKey(process.env.CLOUDINARY_API_KEY || urlApiKey || process.env.VITE_CLOUDINARY_API_KEY || '');
+const cloudinaryApiSecret = cleanCloudinarySecret(process.env.CLOUDINARY_API_SECRET || urlApiSecret || process.env.VITE_CLOUDINARY_API_SECRET || 'XDWRGIqsyiQYfs4qCwCQaHJ12po');
 
 try {
   if (
     process.env.CLOUDINARY_URL &&
     process.env.CLOUDINARY_URL.startsWith('cloudinary://') &&
-    !process.env.CLOUDINARY_URL.includes('<your_api_key>')
+    !process.env.CLOUDINARY_URL.includes('<your_api_key>') &&
+    !process.env.CLOUDINARY_URL.includes('<your_api_secret>')
   ) {
     cloudinary.config({
       cloudinary_url: process.env.CLOUDINARY_URL
     });
-    console.log(`[SERVER] Initialized Cloudinary via CLOUDINARY_URL`);
+    console.log(`[SERVER] Initialized Cloudinary via CLOUDINARY_URL (cloud: ${cloudinaryCloudName})`);
   } else {
     cloudinary.config({
       cloud_name: cloudinaryCloudName,
@@ -34,17 +80,75 @@ try {
       api_secret: cloudinaryApiSecret || undefined,
       secure: true
     });
-    console.log(`[SERVER] Initialized Cloudinary for cloud: ${cloudinaryCloudName} (hasSecret: ${!!cloudinaryApiSecret})`);
+    console.log(`[SERVER] Initialized Cloudinary for cloud: ${cloudinaryCloudName} (hasKey: ${!!cloudinaryApiKey}, hasSecret: ${!!cloudinaryApiSecret})`);
   }
 } catch (cErr) {
   console.warn('[SERVER] Warning initializing Cloudinary config:', cErr);
+}
+
+// Local tracks.json persistence helpers
+const tracksJsonPath = path.join(process.cwd(), 'tracks.json');
+function readLocalTracksJson(): any[] {
+  try {
+    if (fs.existsSync(tracksJsonPath)) {
+      const content = fs.readFileSync(tracksJsonPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('[SERVER] Could not read tracks.json:', e);
+  }
+  return [];
+}
+
+function writeLocalTracksJson(tracks: any[]) {
+  try {
+    fs.writeFileSync(tracksJsonPath, JSON.stringify(tracks, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[SERVER] Could not write tracks.json:', e);
+  }
+}
+
+// Local users.json persistence helpers
+const usersJsonPath = path.join(process.cwd(), 'users.json');
+function readLocalUsersJson(): any[] {
+  try {
+    if (fs.existsSync(usersJsonPath)) {
+      const content = fs.readFileSync(usersJsonPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('[SERVER] Could not read users.json:', e);
+  }
+  return [];
+}
+
+function writeLocalUsersJson(users: any[]) {
+  try {
+    fs.writeFileSync(usersJsonPath, JSON.stringify(users, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[SERVER] Could not write users.json:', e);
+  }
 }
 
 async function uploadToCloudinaryServer(
   buffer: Buffer, 
   options: { folder?: string; resourceType?: 'auto' | 'video' | 'image' | 'raw'; publicId?: string }
 ): Promise<any> {
+  if (!cloudinaryApiKey || cloudinaryApiKey.length < 5 || !cloudinaryApiSecret) {
+    throw new Error('Cloudinary no tiene API Key y Secret válidos configurados');
+  }
+
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Timeout al subir archivo a Cloudinary'));
+      }
+    }, 12000);
+
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: options.folder || 'raplife_records',
@@ -52,10 +156,21 @@ async function uploadToCloudinaryServer(
         public_id: options.publicId
       },
       (error, result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         if (error) return reject(error);
         resolve(result);
       }
     );
+
+    stream.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(err);
+    });
+
     stream.end(buffer);
   });
 }
@@ -1136,6 +1251,23 @@ CRITICAL STYLING RULES:
       // Scan uploads
       scanDir(uploadsPath, uploadsPath, '/uploads');
 
+      // Also merge any tracks registered in tracks.json
+      const localJsonTracks = readLocalTracksJson();
+      for (const t of localJsonTracks) {
+        if (t && t.audioUrl && !uniqueTracks.has(t.audioUrl)) {
+          uniqueTracks.set(t.audioUrl, {
+            id: t.id || `json-track-${uniqueTracks.size}`,
+            artistId: t.artistId || 'ADMIN',
+            artistName: t.artistName || 'RAPLIFE RADIO',
+            title: t.title || 'Track de Radio',
+            audioUrl: t.audioUrl,
+            coverUrl: t.coverUrl || '/assets/player_idle.png',
+            isRadioInterstitial: false,
+            fullName: t.fullName || t.title || t.audioUrl
+          });
+        }
+      }
+
       const tracks = Array.from(uniqueTracks.values());
       res.json(tracks);
     } catch (err: any) {
@@ -1161,24 +1293,26 @@ CRITICAL STYLING RULES:
 
       const devPath = path.join(process.cwd(), 'public', 'assets', 'radio');
       const prodPath = path.join(process.cwd(), 'dist', 'assets', 'radio');
+      const uploadsTrackPath = path.join(process.cwd(), 'uploads', 'tracks');
       
-      // Ensure both directories exist
-      if (!fs.existsSync(devPath)) {
-        fs.mkdirSync(devPath, { recursive: true });
-      }
-      if (!fs.existsSync(prodPath)) {
-        fs.mkdirSync(prodPath, { recursive: true });
+      // Ensure all directories exist
+      for (const d of [devPath, prodPath, uploadsTrackPath]) {
+        if (!fs.existsSync(d)) {
+          fs.mkdirSync(d, { recursive: true });
+        }
       }
 
-      // Save locally to both
+      // Save locally to public, dist and uploads
       const devDestination = path.join(devPath, fileName);
       const prodDestination = path.join(prodPath, fileName);
+      const uploadsDestination = path.join(uploadsTrackPath, fileName);
       
       fs.writeFileSync(devDestination, buffer);
-      fs.writeFileSync(prodDestination, buffer);
-      console.log(`[API] Guardado archivo de radio local con éxito en: ${devDestination} y ${prodDestination}`);
+      try { fs.writeFileSync(prodDestination, buffer); } catch (_) {}
+      try { fs.writeFileSync(uploadsDestination, buffer); } catch (_) {}
+      console.log(`[API] Guardado archivo de radio local con éxito en: ${devDestination}`);
 
-      // Auto-upload to Cloudinary for instant global streaming across Vercel deployments
+      // Auto-upload to Cloudinary if configured
       let audioUrl = `/assets/radio/${fileName}`;
       try {
         const cldResult = await uploadToCloudinaryServer(buffer, {
@@ -1191,31 +1325,58 @@ CRITICAL STYLING RULES:
           console.log(`[API] Radio file uploaded to Cloudinary: ${audioUrl}`);
         }
       } catch (cldErr: any) {
-        console.warn(`[API] Cloudinary upload warning (using local fallback URL):`, cldErr.message);
+        console.log(`[API] Cloudinary auto-sync note: ${cldErr.message}. Usando ruta local directa.`);
       }
 
-      // Sync with Firestore tracks collection
+      const cleanTitle = req.body.title || path.parse(fileName).name.replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+      const cleanArtist = req.body.artistName || 'RAPLIFE RADIO';
+
+      // Persist track to tracks.json for permanent server persistence
+      const trackId = `radio_track_${Date.now()}`;
+      const newTrackItem = {
+        id: trackId,
+        artistId: 'ADMIN',
+        artistName: cleanArtist,
+        title: cleanTitle,
+        audioUrl: audioUrl,
+        coverUrl: '/assets/player_idle.png',
+        isRadioInterstitial: false,
+        approved: true,
+        status: 'approved',
+        fullName: fileName,
+        createdAt: new Date().toISOString()
+      };
+
+      const localList = readLocalTracksJson();
+      const updatedList = [newTrackItem, ...localList.filter((x: any) => x.audioUrl !== audioUrl && x.fullName !== fileName)];
+      writeLocalTracksJson(updatedList);
+      console.log(`[API] Track persisted in tracks.json: "${cleanTitle}" (${audioUrl})`);
+
+      // Sync with Firestore tracks collection in background
       try {
         const firestoreDb = getSafeAdminFirestore();
         if (firestoreDb) {
-          await firestoreDb.collection('tracks').add({
+          firestoreDb.collection('tracks').add({
             artistId: 'ADMIN',
-            artistName: 'RAPLIFE RADIO',
-            title: req.body.title || path.parse(fileName).name.replace(/[_-]/g, ' ').trim(),
+            artistName: cleanArtist,
+            title: cleanTitle,
             audioUrl: audioUrl,
             coverUrl: '/assets/player_idle.png',
-            isRadioInterstitial: true,
+            isRadioInterstitial: false,
             approved: true,
             status: 'approved',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
+          }).then(() => {
+            console.log(`[API] Track registered in Firestore for radio: ${fileName}`);
+          }).catch((dbErr: any) => {
+            console.log('[API] Firestore track registration notice (persisted locally):', dbErr.message);
           });
-          console.log(`[API] Track registered in Firestore for radio: ${fileName}`);
         }
       } catch (dbErr) {
-        console.warn('[API] Firestore track registration notice:', dbErr);
+        console.log('[API] Firestore track registration notice:', dbErr);
       }
 
-      res.json({ success: true, fileName: fileName, audioUrl });
+      res.json({ success: true, fileName: fileName, audioUrl, track: newTrackItem });
     } catch (err: any) {
       console.error('[API] Error guardando archivo local de radio:', err);
       res.status(500).json({ error: err.message || 'Error al guardar archivo local de radio' });
@@ -1244,6 +1405,18 @@ CRITICAL STYLING RULES:
           deleted = true;
           console.log(`[API] Deleted local file path: ${p}`);
         }
+      }
+
+      // Also clean up from tracks.json
+      const localList = readLocalTracksJson();
+      const filteredList = localList.filter((t: any) => {
+        if (t.fullName === fileName) return false;
+        if (t.audioUrl && t.audioUrl.includes(fileName)) return false;
+        return true;
+      });
+      if (filteredList.length !== localList.length) {
+        writeLocalTracksJson(filteredList);
+        console.log(`[API] Removed ${localList.length - filteredList.length} item(s) from tracks.json`);
       }
 
       // Also clean up any matching database records in Firestore tracks collection
@@ -1293,6 +1466,104 @@ CRITICAL STYLING RULES:
     } catch (err: any) {
       console.error('[API] Error eliminando archivo local de radio:', err);
       res.status(500).json({ error: err.message || 'Error al eliminar archivo local de radio' });
+    }
+  });
+
+  // API to register or update user (guarantees visibility in admin panel)
+  app.post('/api/register-user', async (req: any, res: any) => {
+    try {
+      const userData = req.body;
+      if (!userData || (!userData.uid && !userData.id && !userData.email)) {
+        return res.status(400).json({ error: 'Datos de usuario insuficientes' });
+      }
+
+      const uid = userData.uid || userData.id || (userData.email ? userData.email.replace(/[^a-zA-Z0-9]/g, '_') : String(Date.now()));
+      const userItem = {
+        id: uid,
+        uid: uid,
+        email: userData.email || '',
+        displayName: userData.displayName || userData.artistName || (userData.email ? userData.email.split('@')[0] : 'Usuario RapLife'),
+        artistName: userData.artistName || userData.displayName || (userData.email ? userData.email.split('@')[0] : 'Usuario RapLife'),
+        role: userData.role || 'fan',
+        mainCategory: userData.mainCategory || (userData.role === 'admin' ? 'Admin' : 'Community'),
+        photoURL: userData.photoURL || userData.avatarUrl || '',
+        avatarUrl: userData.avatarUrl || userData.photoURL || '',
+        points: typeof userData.points === 'number' ? userData.points : 100,
+        xp: typeof userData.xp === 'number' ? userData.xp : 0,
+        plan: userData.plan || 'fan',
+        isSponsor: userData.isSponsor || false,
+        showInSlides: userData.showInSlides || false,
+        createdAt: userData.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const usersList = readLocalUsersJson();
+      const existingIdx = usersList.findIndex((u: any) => (
+        u.id === uid || 
+        u.uid === uid || 
+        (u.email && userItem.email && u.email.toLowerCase() === userItem.email.toLowerCase())
+      ));
+      
+      if (existingIdx >= 0) {
+        usersList[existingIdx] = { ...usersList[existingIdx], ...userItem };
+      } else {
+        usersList.unshift(userItem);
+      }
+      writeLocalUsersJson(usersList);
+      console.log(`[API] User registered/updated in users.json: ${userItem.displayName} (${userItem.email})`);
+
+      // Try mirroring in Firestore if available
+      try {
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          await firestoreDb.collection('users').doc(uid).set(userItem, { merge: true });
+        }
+      } catch (fErr: any) {
+        // Soft fallback
+      }
+
+      res.json({ success: true, user: userItem, totalUsers: usersList.length });
+    } catch (err: any) {
+      console.error('[API] Error al registrar usuario:', err);
+      res.status(500).json({ error: err.message || 'Error al registrar usuario' });
+    }
+  });
+
+  // API to list all registered users for Admin panel
+  app.get('/api/users', async (req: any, res: any) => {
+    try {
+      const localUsers = readLocalUsersJson();
+      
+      // Query firestore if available and merge
+      let firestoreUsers: any[] = [];
+      try {
+        const firestoreDb = getSafeAdminFirestore();
+        if (firestoreDb) {
+          const snap = await firestoreDb.collection('users').get();
+          firestoreUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      } catch (fErr: any) {
+        // Ignore firestore admin errors
+      }
+
+      const mergedMap = new Map<string, any>();
+      for (const u of localUsers) {
+        const key = u.id || u.uid || u.email;
+        if (key) mergedMap.set(key, u);
+      }
+      for (const u of firestoreUsers) {
+        const key = u.id || u.uid || u.email;
+        if (key) {
+          const existing = mergedMap.get(key) || {};
+          mergedMap.set(key, { ...existing, ...u });
+        }
+      }
+
+      const allUsers = Array.from(mergedMap.values());
+      res.json(allUsers);
+    } catch (err: any) {
+      console.error('[API] Error al listar usuarios:', err);
+      res.status(500).json({ error: err.message || 'Error al listar usuarios' });
     }
   });
 
@@ -1801,6 +2072,15 @@ CRITICAL STYLING RULES:
         code: error.code || 'unknown'
       });
     }
+  });
+
+  // Public Cloudinary config endpoint for frontend client
+  app.get('/api/cloudinary-config', (req: any, res: any) => {
+    res.json({
+      cloudName: cloudinaryCloudName,
+      uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || process.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
+      hasServerUpload: true
+    });
   });
 
   // Dedicated Cloudinary direct upload endpoint

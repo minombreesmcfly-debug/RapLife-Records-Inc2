@@ -267,13 +267,15 @@ export default function SponsoredCarousel() {
                 onClick={async () => {
                   try {
                     await signInWithGoogle();
-                  } catch (err) {
-                    console.error("Popup login error, trying redirect fallback:", err);
-                    try {
-                      const { signInWithGoogleRedirect } = await import('../lib/firebase');
-                      await signInWithGoogleRedirect();
-                    } catch (redirectErr) {
-                      console.error("Redirect fallback failed:", redirectErr);
+                  } catch (err: any) {
+                    if (err?.code !== 'auth/popup-closed-by-user') {
+                      console.warn("[AUTH] Popup login notice in carousel:", err?.message || err);
+                      try {
+                        const { signInWithGoogleRedirect } = await import('../lib/firebase');
+                        await signInWithGoogleRedirect();
+                      } catch (redirectErr: any) {
+                        console.warn("[AUTH] Redirect fallback notice in carousel:", redirectErr?.message || redirectErr);
+                      }
                     }
                   }
                 }}
@@ -430,13 +432,15 @@ export default function SponsoredCarousel() {
                         onClick={async () => {
                           try {
                             await signInWithGoogle();
-                          } catch (err) {
-                            console.error("Popup login error, trying redirect fallback:", err);
-                            try {
-                              const { signInWithGoogleRedirect } = await import('../lib/firebase');
-                              await signInWithGoogleRedirect();
-                            } catch (redirectErr) {
-                              console.error("Redirect fallback failed:", redirectErr);
+                          } catch (err: any) {
+                            if (err?.code !== 'auth/popup-closed-by-user') {
+                              console.warn("[AUTH] Popup login notice in banner:", err?.message || err);
+                              try {
+                                const { signInWithGoogleRedirect } = await import('../lib/firebase');
+                                await signInWithGoogleRedirect();
+                              } catch (redirectErr: any) {
+                                console.warn("[AUTH] Redirect fallback notice in banner:", redirectErr?.message || redirectErr);
+                              }
                             }
                           }
                         }}

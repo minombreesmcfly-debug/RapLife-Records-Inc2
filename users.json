@@ -1,0 +1,20 @@
+[
+  {
+    "id": "admin_mcfly",
+    "uid": "admin_mcfly",
+    "email": "minombreesmcfly@gmail.com",
+    "displayName": "McFly EmeCe",
+    "artistName": "McFly EmeCe",
+    "role": "admin",
+    "mainCategory": "Admin",
+    "photoURL": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400",
+    "avatarUrl": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400",
+    "points": 150000,
+    "xp": 5000,
+    "plan": "pro",
+    "isSponsor": true,
+    "showInSlides": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-10-01T00:00:00.000Z"
+  }
+]

@@ -46,18 +46,35 @@ export async function getCloudinaryConfig(): Promise<CloudinaryConfig> {
     if (metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET) resolved.uploadPreset = metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET;
   } catch (_) {}
 
-  // 3. Override with Firestore config document if available
-  try {
-    const docSnap = await getDoc(doc(db, 'config', 'cloudinary'));
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      if (data.cloudName) resolved.cloudName = data.cloudName.trim();
-      if (data.apiKey) resolved.apiKey = data.apiKey.trim();
-      if (data.apiSecret) resolved.apiSecret = data.apiSecret.trim();
-      if (data.uploadPreset) resolved.uploadPreset = data.uploadPreset.trim();
+    // 3. Override with Firestore config document if available
+    try {
+      const docSnap = await getDoc(doc(db, 'config', 'cloudinary'));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.cloudName) resolved.cloudName = data.cloudName.trim();
+        if (data.apiKey) resolved.apiKey = data.apiKey.trim();
+        if (data.apiSecret) resolved.apiSecret = data.apiSecret.trim();
+        if (data.uploadPreset) resolved.uploadPreset = data.uploadPreset.trim();
+      }
+    } catch (err) {
+      console.warn('[CLOUDINARY] Could not fetch config from Firestore, using env/defaults:', err);
     }
-  } catch (err) {
-    console.warn('[CLOUDINARY] Could not fetch config from Firestore, using env/defaults:', err);
+
+    // 4. Fallback to /api/cloudinary-config from backend if available
+    try {
+      const apiRes = await fetch('/api/cloudinary-config');
+      if (apiRes.ok) {
+        const apiData = await apiRes.json();
+        if (apiData.cloudName && !resolved.cloudName) resolved.cloudName = apiData.cloudName;
+        if (apiData.uploadPreset && !resolved.uploadPreset) resolved.uploadPreset = apiData.uploadPreset;
+      }
+    } catch (_) {}
+
+  // Clean placeholder or broken values
+  if (resolved.apiKey) {
+    if (resolved.apiKey.includes('<your_api_key>') || resolved.apiKey.startsWith('CLOUDINARY_URL=') || resolved.apiKey.includes('cloudinary://')) {
+      resolved.apiKey = '';
+    }
   }
 
   cachedConfig = resolved;
@@ -124,7 +141,7 @@ export async function uploadToCloudinary(
     formData.append('resourceType', resourceType);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const serverRes = await fetch('/api/cloudinary-upload', {
       method: 'POST',
@@ -180,17 +197,20 @@ export async function uploadToCloudinary(
   }
 
   // Direct upload option B: Signed with apiKey + apiSecret
-  if (config.apiKey && config.apiSecret && config.apiKey.trim() !== '' && config.apiSecret.trim() !== '') {
+  const hasValidApiKey = config.apiKey && config.apiKey.trim().length > 4 && !config.apiKey.includes('<your_api_key>');
+  const hasValidSecret = config.apiSecret && config.apiSecret.trim().length > 4 && !config.apiSecret.includes('<your_api_secret>');
+
+  if (hasValidApiKey && hasValidSecret) {
     const timestamp = Math.round(Date.now() / 1000);
     
     // Sort parameters alphabetically to calculate Cloudinary signature
     // folder=${folder}&timestamp=${timestamp}${apiSecret}
     let paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
-    const signature = await computeSha1(paramsToSign + config.apiSecret.trim());
+    const signature = await computeSha1(paramsToSign + config.apiSecret!.trim());
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('api_key', config.apiKey.trim());
+    formData.append('api_key', config.apiKey!.trim());
     formData.append('timestamp', timestamp.toString());
     formData.append('signature', signature);
     formData.append('folder', folder);
@@ -211,31 +231,8 @@ export async function uploadToCloudinary(
     }
   }
 
-  // If no apiKey was supplied, attempt standard presets or guide user
-  const fallbackPresets = ['raplife_unsigned', 'ml_default', 'unsigned'];
-  for (const preset of fallbackPresets) {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', preset);
-      if (folder) formData.append('folder', folder);
-
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`[CLOUDINARY] Direct upload succeeded using preset "${preset}":`, data.secure_url);
-        if (options.onProgress) options.onProgress(100);
-        return data;
-      }
-    } catch (_) {}
-  }
-
   throw new Error(
-    'Falta configurar la API Key de Cloudinary o un Upload Preset en el Panel de Administración > Cloudinary para permitir subidas directas desde Vercel.'
+    'Cloudinary no tiene API Key válida ni Upload Preset configurado.'
   );
 }
 

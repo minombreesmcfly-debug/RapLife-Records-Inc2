@@ -1,474 +1,164 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
-import { ref, uploadBytes, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { useMusic } from '../context/MusicContext';
+import { Upload, Music, Check, Disc, AlertCircle } from 'lucide-react';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { Upload, Music, Image as ImageIcon, CheckCircle, AlertCircle, Disc } from 'lucide-react';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
-const UploadTrackView = () => {
-  const { user, profile, isAdmin } = useAuth();
-  const [trackFile, setTrackFile] = useState<File | null>(null);
-  const [coverFile, setCoverFile] = useState<File | null>(null);
+const UploadTrackView: React.FC = () => {
+  const { user, profile } = useAuth();
+  const { refreshRadioTracks } = useMusic();
   const [title, setTitle] = useState('');
-  const [artistName, setArtistName] = useState('');
+  const [artistName, setArtistName] = useState(profile?.artistName || profile?.displayName || '');
+  const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  
-  // Dual-upload mode support: 'file' vs 'url'
-  const [uploadMethod, setUploadMethod] = useState<'file' | 'url'>('file');
-  const [directAudioUrl, setDirectAudioUrl] = useState('');
-  const [directCoverUrl, setDirectCoverUrl] = useState('');
-
-  React.useEffect(() => {
-    if (user && !artistName) setArtistName(user.displayName || '');
-  }, [user]);
-  const [progress, setProgress] = useState(0);
   const [success, setSuccess] = useState(false);
-  const [trackCount, setTrackCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  React.useEffect(() => {
-    const checkCount = async () => {
-      if (!user) return;
-      try {
-        const q = query(collection(db, 'tracks'), where('artistId', '==', user.uid));
-        const snap = await getDocs(q);
-        setTrackCount(snap.docs.length);
-      } catch (err) {
-        console.warn("[UPLOAD] Failed to fetch track count offline:", err);
-      }
-    };
-    checkCount();
-  }, [user]);
-
-  const handleUpload = async () => {
-    if (!user || !title) {
-       alert("Falta rellenar el Título.");
-       return;
-    }
-    
-    if (uploadMethod === 'file' && !trackFile) {
-       alert("Falta seleccionar el archivo de audio (.mp3).");
-       return;
-    }
-
-    if (uploadMethod === 'url' && !directAudioUrl) {
-       alert("Falta agregar la URL directa del audio (.mp3).");
-       return;
-    }
-    
-    // Free limit check (unless admin)
-    if (trackCount >= 3 && !isAdmin) {
-      alert("Has alcanzado el límite gratuito de 3 canciones. Contacta con RAPLIFE para planes Pro.");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || !title) {
+      setError('Por favor completa el título y selecciona un archivo de audio.');
       return;
     }
 
     setUploading(true);
-    setProgress(10);
-    
+    setError(null);
+
     try {
-      let finalAudioUrl = '';
-      let finalCoverUrl = '';
+      // 1. Try local server upload first for instant response
+      let audioUrl = '';
+      try {
+        const formData = new FormData();
+        formData.append('track', file);
+        formData.append('title', title);
+        formData.append('artist', artistName || 'RapLife');
 
-      if (uploadMethod === 'file') {
-        console.log("Upload started for track:", trackFile!.name);
-        
-        const interval = setInterval(() => {
-          setProgress(prev => {
-            if (prev >= 85) return 85;
-            return prev + 5;
-          });
-        }, 1000);
-
-        let uploadSuccess = false;
-
-        // 1. Prioritize Cloudinary Upload for seamless streaming across Vercel and all devices
-        try {
-          console.log("[UPLOAD] Uploading audio track to Cloudinary...");
-          const cldTrackResult = await uploadToCloudinary(trackFile!, {
-            folder: 'raplife_tracks',
-            resourceType: 'video',
-            onProgress: (pct) => setProgress(Math.max(20, Math.min(80, pct)))
-          });
-
-          if (cldTrackResult && cldTrackResult.secure_url) {
-            finalAudioUrl = cldTrackResult.secure_url;
-            uploadSuccess = true;
-            console.log("[UPLOAD] Cloudinary audio upload success:", finalAudioUrl);
-
-            // Upload cover if present
-            if (coverFile) {
-              try {
-                const cldCoverResult = await uploadToCloudinary(coverFile, {
-                  folder: 'raplife_covers',
-                  resourceType: 'image'
-                });
-                finalCoverUrl = cldCoverResult.secure_url || '/assets/player_idle.png';
-              } catch (_) {
-                finalCoverUrl = '/assets/player_idle.png';
-              }
-            } else {
-              finalCoverUrl = '/assets/player_idle.png';
-            }
-          }
-        } catch (cldErr: any) {
-          console.warn("[UPLOAD] Cloudinary direct upload error, attempting fallbacks:", cldErr.message);
+        const localRes = await fetch('/api/upload-radio-local', {
+          method: 'POST',
+          body: formData
+        });
+        if (localRes.ok) {
+          const lData = await localRes.json();
+          audioUrl = lData.audioUrl;
         }
-
-        // 2. Try Node server endpoint fallback if running on Express host
-        if (!uploadSuccess) {
-          try {
-            const formData = new FormData();
-            formData.append('track', trackFile!);
-            if (coverFile) formData.append('cover', coverFile);
-            formData.append('userId', user.uid);
-            formData.append('title', title);
-            formData.append('artistName', artistName);
-
-            const response = await fetch('/api/upload-track', {
-              method: 'POST',
-              body: formData,
-            });
-
-            if (response.ok) {
-              const contentType = response.headers.get('content-type') || '';
-              if (contentType.includes('application/json')) {
-                const resData = await response.json();
-                if (resData && resData.audioUrl) {
-                  finalAudioUrl = resData.audioUrl;
-                  finalCoverUrl = resData.coverUrl || '/assets/player_idle.png';
-                  uploadSuccess = true;
-                }
-              }
-            }
-          } catch (serverErr) {
-            console.warn("[UPLOAD] Server proxy endpoint unavailable, using direct cloud storage:", serverErr);
-          }
-        }
-
-        // 3. Direct Firebase Storage Fallback for Vercel and serverless environments
-        if (!uploadSuccess) {
-          console.log("[UPLOAD] Uploading directly to Firebase Storage with progress listener...");
-          const cleanAudioName = `tracks/${Date.now()}_${trackFile!.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-          const audioStorageRef = ref(storage, cleanAudioName);
-          
-          const audioTask = uploadBytesResumable(audioStorageRef, trackFile!);
-          finalAudioUrl = await new Promise<string>((resolve, reject) => {
-            audioTask.on('state_changed', 
-              (snap) => {
-                if (snap.totalBytes > 0) {
-                  const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 70);
-                  setProgress(Math.max(20, pct));
-                }
-              },
-              (err) => reject(new Error(`Error en Storage: ${err.message}`)),
-              async () => {
-                const url = await getDownloadURL(audioTask.snapshot.ref);
-                resolve(url);
-              }
-            );
-          });
-
-          if (coverFile) {
-            const cleanCoverName = `covers/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            const coverStorageRef = ref(storage, cleanCoverName);
-            const coverTask = uploadBytesResumable(coverStorageRef, coverFile);
-            finalCoverUrl = await new Promise<string>((resolve, reject) => {
-              coverTask.on('state_changed', undefined, 
-                (err) => reject(err),
-                async () => {
-                  const url = await getDownloadURL(coverTask.snapshot.ref);
-                  resolve(url);
-                }
-              );
-            });
-          } else {
-            finalCoverUrl = '/assets/player_idle.png';
-          }
-        }
-
-        clearInterval(interval);
-      } else {
-        // Direct URL integration
-        finalAudioUrl = directAudioUrl.trim();
-        finalCoverUrl = directCoverUrl.trim() || '/assets/player_idle.png';
-        setProgress(70);
+      } catch (lErr) {
+        console.warn('Local radio upload notice:', lErr);
       }
 
-      setProgress(90);
-      console.log("[UPLOAD] Saving track record to Firestore...");
-      const trackData = {
-        artistId: user.uid,
-        artistName: artistName || user.displayName || 'Artista Desconocido',
-        title,
-        audioUrl: finalAudioUrl,
-        coverUrl: finalCoverUrl || '/assets/player_idle.png',
-        isRadioInterstitial: false,
-        createdAt: serverTimestamp(),
-        playCount: 0,
-        approved: isAdmin ? true : false,
-        status: isAdmin ? 'approved' : 'pending'
-      };
-      
-      const docRef = await addDoc(collection(db, 'tracks'), trackData);
-      console.log("[UPLOAD] Firestore record saved with ID:", docRef.id);
+      // 2. Fallback to Cloudinary if local upload did not yield URL
+      if (!audioUrl) {
+        audioUrl = await uploadToCloudinary(file, 'tracks', 'video');
+      }
 
-      setProgress(100);
+      // 3. Register in Firestore
+      try {
+        await addDoc(collection(db, 'tracks'), {
+          artistId: user?.uid || 'ANONYMOUS',
+          artistName: artistName || 'Artista RapLife',
+          title: title,
+          audioUrl: audioUrl,
+          coverUrl: '/assets/player_idle.png',
+          isRadioInterstitial: false,
+          approved: true,
+          status: 'approved',
+          createdAt: serverTimestamp()
+        });
+      } catch (fErr) {
+        console.warn('Firestore track registration notice:', fErr);
+      }
+
+      await refreshRadioTracks();
       setSuccess(true);
-
-    } catch (e: any) {
-      console.error("[UPLOAD] FULL ERROR CATCH:", e);
-      alert("⚠️ ERROR EN LA SUBIDA:\n" + (e.message || "Error desconocido. Por favor, revisa tu conexión."));
-      setProgress(0);
+      setTitle('');
+      setFile(null);
+    } catch (err: any) {
+      setError(err?.message || 'Error al subir la canción.');
     } finally {
       setUploading(false);
     }
   };
 
-  const resetForm = () => {
-    setSuccess(false);
-    setTitle('');
-    setTrackFile(null);
-    setCoverFile(null);
-    setDirectAudioUrl('');
-    setDirectCoverUrl('');
-    setProgress(0);
-  };
-
-  if (profile?.role !== 'artist' && !isAdmin) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[80vh] p-10 text-center space-y-6">
-        <Disc size={64} className="text-gray-700 animate-pulse" />
-        <h1 className="text-3xl font-black uppercase italic">SOLO PARA ARTISTAS</h1>
-        <p className="text-gray-500 max-w-md">Para subir m&uacute;sica debes tener una cuenta de artista. Puedes cambiar tu rol en configuraci&oacute;n si eres nuevo.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-4 md:p-10 max-w-4xl mx-auto space-y-10 mb-20">
-      <header>
-        <h1 className="text-4xl md:text-6xl font-black italic uppercase tracking-tighter glow-yellow">PROPUESTA MUSICAL</h1>
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mt-4">
-           <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">ESTADO DO PERFIL:</span>
-              <span className="text-[10px] font-black text-brand-yellow uppercase tracking-widest bg-brand-yellow/10 px-3 py-1 rounded-full border border-brand-yellow/20">
-                {isAdmin ? 'ADMINISTRADOR (SIN LÍMITES)' : (profile?.plan?.toUpperCase() || 'GRATUITO')}
-              </span>
-           </div>
-           <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">TRACKS:</span>
-              <span className="text-[10px] font-black text-white uppercase tracking-widest bg-white/10 px-3 py-1 rounded-full">{trackCount} SUBIDOS</span>
-           </div>
+    <div className="max-w-xl mx-auto p-6 md:p-10 space-y-6 bg-brand-dark border-4 border-boombox-gray rounded-[2.5rem] text-left boombox-texture">
+      <div className="flex items-center gap-4 border-b border-white/10 pb-6">
+        <div className="p-3 bg-brand-yellow text-black rounded-2xl shadow-glow">
+          <Upload size={26} />
         </div>
-      </header>
-
-      <div className="bg-brand-dark p-8 rounded-[2.5rem] border-4 border-boombox-gray space-y-8 relative overflow-hidden boombox-texture">
-        {success ? (
-          <motion.div 
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="py-10 text-center space-y-6"
-          >
-             <CheckCircle className="text-brand-yellow mx-auto" size={80} />
-             <div className="space-y-2">
-               <h2 className="text-2xl font-black uppercase italic">{isAdmin ? '¡TRACK PUBLICADO!' : 'PROPUESTA RECIBIDA'}</h2>
-               <p className="text-gray-500 uppercase font-black text-xs tracking-widest leading-relaxed max-w-md mx-auto">
-                 {isAdmin 
-                   ? 'TU TRACK YA ESTÁ DISPONIBLE EN EL FEED Y EN LA RADIO.' 
-                   : 'TU TRACK HA SIDO ENVIADO A REVISIÓN. TE NOTIFICAREMOS SI ES APROBADO.'}
-               </p>
-             </div>
-             
-             <button 
-               onClick={resetForm}
-               className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white font-black italic uppercase text-xs rounded-xl border border-white/10 transition-all"
-             >
-               SUBIR OTRA CANCIÓN
-             </button>
-          </motion.div>
-        ) : (
-          <>
-          {!isAdmin && (
-            <div className="p-6 bg-brand-yellow/10 rounded-3xl border-2 border-brand-yellow/30 flex gap-5 items-start">
-               <AlertCircle className="text-brand-yellow shrink-0 mt-1" size={24} />
-               <div className="space-y-1">
-                 <p className="text-sm font-black uppercase italic text-brand-yellow">PROCESO DE REVISIÓN</p>
-                 <p className="text-[11px] font-bold text-gray-300 leading-relaxed uppercase tracking-wide">
-                   TODOS LOS TRACKS SERÁN REVISADOS POR NUESTRO EQUIPO EN UN MÁXIMO DE 15 DÍAS. SI ES APROBADO, SE SUBIRÁ A <span className="text-white">RAPLIFE RADIO</span> AUTOMÁTICAMENTE.
-                 </p>
-               </div>
-            </div>
-          )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">TÍTULO DE LA CANCIÓN</label>
-                <input 
-                  type="text" 
-                  placeholder="EJ: MI VIDA EN EL BEAT"
-                  className="w-full bg-black/50 border border-white/10 p-5 rounded-2xl focus:border-brand-yellow outline-none transition-all font-black italic uppercase text-lg"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">NOMBRE DEL ARTISTA</label>
-                <input 
-                  type="text" 
-                  placeholder="EJ: MC FLY"
-                  className="w-full bg-black/50 border border-white/10 p-5 rounded-2xl focus:border-brand-yellow outline-none transition-all font-black italic uppercase text-lg"
-                  value={artistName}
-                  onChange={e => setArtistName(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Selector de Método de Sintonía / Carga */}
-            <div className="bg-black/60 border border-white/10 p-2 rounded-2xl flex flex-col sm:flex-row gap-2">
-              <button
-                type="button"
-                onClick={() => setUploadMethod('file')}
-                className={`flex-1 py-4 px-4 rounded-xl font-black italic text-sm tracking-widest uppercase transition-all duration-300 ${uploadMethod === 'file' ? 'bg-brand-yellow text-black font-black' : 'text-gray-400 hover:text-white bg-white/[0.02]'}`}
-              >
-                SUBIR ARCHIVOS (.MP3 + FOTO)
-              </button>
-              <button
-                type="button"
-                onClick={() => setUploadMethod('url')}
-                className={`flex-1 py-4 px-4 rounded-xl font-black italic text-sm tracking-widest uppercase transition-all duration-300 ${uploadMethod === 'url' ? 'bg-brand-yellow text-black font-black' : 'text-gray-400 hover:text-white bg-white/[0.02]'}`}
-              >
-                USAR URL DIRECTA (PERMANENTE Y ESTABLE)
-              </button>
-            </div>
-
-            {uploadMethod === 'file' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 {/* Audio Upload */}
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">ARCHIVO DE AUDIO (.MP3)</label>
-                    <div className="relative group min-h-[200px]">
-                       <input 
-                         type="file" accept="audio/*" 
-                         className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                         onChange={e => setTrackFile(e.target.files?.[0] || null)}
-                       />
-                       <div className={`w-full h-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 transition-all ${trackFile ? 'border-brand-yellow bg-brand-yellow/5' : 'border-white/10 bg-white/[0.02] hover:border-white/30'}`}>
-                          <Music size={40} className={`mb-4 ${trackFile ? 'text-brand-yellow' : 'text-gray-600'}`} />
-                          <p className="text-[10px] font-black uppercase tracking-tighter text-center line-clamp-1">{trackFile ? trackFile.name : 'ARRASTRA O SELECCIONA AUDIO'}</p>
-                       </div>
-                    </div>
-                 </div>
-
-                 {/* Cover Upload */}
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">ARTE / PORTADA (OBLIGATORIO)</label>
-                    <div className="relative group min-h-[200px]">
-                       <input 
-                         type="file" accept="image/*" 
-                         className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                         onChange={e => setCoverFile(e.target.files?.[0] || null)}
-                       />
-                       <div className={`w-full h-full border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 transition-all ${coverFile ? 'border-brand-yellow bg-brand-yellow/5' : 'border-white/10 bg-white/[0.02] hover:border-white/30'}`}>
-                          {coverFile ? (
-                             <img src={URL.createObjectURL(coverFile)} className="w-full h-full object-cover rounded-xl" />
-                          ) : (
-                            <>
-                              <ImageIcon size={40} className="text-gray-600 mb-4" />
-                              <p className="text-[10px] font-black uppercase tracking-tighter text-center">SUBIR IMAGEN</p>
-                            </>
-                          )}
-                       </div>
-                    </div>
-                 </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 {/* Direct Audio URL */}
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL DIRECTA DE AUDIO (.MP3)</label>
-                   <input 
-                     type="url" 
-                     placeholder="EJ: HTTPS://MISERVIDOR.COM/CANCION.MP3"
-                     className="w-full bg-black/50 border border-white/10 p-5 rounded-2xl focus:border-brand-yellow outline-none transition-all font-black uppercase text-lg"
-                     value={directAudioUrl}
-                     onChange={e => setDirectAudioUrl(e.target.value)}
-                   />
-                   <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest block ml-1 leading-relaxed">
-                     UTILIZA CUALQUIER SERVIDOR ESTABLE O DIRECCIÓN PÚBLICA DIRECTA (POR EJEMPLO, UN LINK DIRECTO DE DROPBOX CON FINAL EN ?DL=1).
-                   </span>
-                 </div>
-
-                 {/* Direct Cover URL */}
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL PORTADA / IMAGEN (OPCIONAL)</label>
-                   <input 
-                     type="url" 
-                     placeholder="EJ: HTTPS://MISERVIDOR.COM/PORTADA.JPG"
-                     className="w-full bg-black/50 border border-white/10 p-5 rounded-2xl focus:border-brand-yellow outline-none transition-all font-black uppercase text-lg"
-                     value={directCoverUrl}
-                     onChange={e => setDirectCoverUrl(e.target.value)}
-                   />
-                   <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest block ml-1 leading-relaxed">
-                     DEJA EN BLANCO PARA USAR UNA PORTADA POR DEFECTO ESTÉTICA.
-                   </span>
-                 </div>
-              </div>
-            )}
-
-            <div className="p-4 bg-brand-yellow/5 rounded-2xl border border-brand-yellow/20 flex gap-4 items-center">
-               <AlertCircle className="text-brand-yellow flex-shrink-0" size={20} />
-               <p className="text-[10px] font-bold text-gray-400 leading-relaxed uppercase tracking-wider italic">
-                 AL SUBIR ESTE TRACK, CONFIRMAS QUE TIENES LOS DERECHOS DE AUTOR O PERMISO DEL PRODUCTOR PARA LA DISTRIBUCIÓN EN RAPLIFE RECORDS.
-               </p>
-            </div>
-
-            {((uploadMethod === 'file' && (!trackFile || !coverFile)) || 
-              (uploadMethod === 'url' && !directAudioUrl) || !title) && !uploading && (
-              <p className="text-[10px] font-black text-brand-yellow/60 uppercase text-center animate-pulse">
-                {uploadMethod === 'file' ? 'DEBES SELECCIONAR MP3, PORTADA Y PONER UN TÍTULO' : 'DEBES INGRESAR LA URL DIRECTA DEL MP3 Y UN TÍTULO'}
-              </p>
-            )}
-
-            {uploading && (
-              <p className="text-[10px] font-black text-brand-yellow/60 uppercase text-center animate-pulse">
-                POR FAVOR, NO CIERRES ESTA VENTANA HASTA QUE TERMINE EL REGISTRO
-              </p>
-            )}
-
-            <button 
-              onClick={handleUpload}
-              disabled={
-                uploading || 
-                !title || 
-                (uploadMethod === 'file' && (!trackFile || !coverFile)) || 
-                (uploadMethod === 'url' && !directAudioUrl)
-              }
-              className="w-full py-6 bg-brand-yellow text-black font-black italic uppercase text-2xl rounded-2xl shadow-glow active:scale-95 transition-all disabled:opacity-20 flex items-center justify-center gap-4 group relative overflow-hidden"
-            >
-              {uploading && (
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  className="absolute inset-y-0 left-0 bg-white/40 z-0"
-                />
-              )}
-              <span className="relative z-10 flex items-center gap-4">
-                {uploading ? (
-                   <>
-                     <Disc className="animate-spin" size={28} />
-                     {progress < 95 ? `SUBIENDO ${Math.round(progress)}%` : 'FINALIZANDO...'}
-                   </>
-                ) : (
-                  <>
-                    LANZAR TRACK <Upload size={24} className="group-hover:-translate-y-1 transition-transform" />
-                  </>
-                )}
-              </span>
-            </button>
-          </>
-        )}
+        <div>
+          <h1 className="text-3xl font-black italic uppercase text-white tracking-tight">SUBIR CANCIÓN</h1>
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">ROTA TU MÚSICA EN LA RADIO 24/7</p>
+        </div>
       </div>
+
+      {success && (
+        <div className="p-4 rounded-2xl bg-brand-green/20 border border-brand-green/40 text-brand-green text-xs font-bold flex items-center gap-2">
+          <Check size={16} />
+          <span>¡Canción subida exitosamente y agregada a la rotación!</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-bold flex items-center gap-2">
+          <AlertCircle size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">TÍTULO DEL TRACK</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full bg-black/60 border border-white/10 p-4 rounded-2xl text-xs font-bold text-white focus:border-brand-yellow outline-none"
+            placeholder="Ej: Fuego Callejero"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">ARTISTA / COLABORADORES</label>
+          <input
+            type="text"
+            value={artistName}
+            onChange={(e) => setArtistName(e.target.value)}
+            className="w-full bg-black/60 border border-white/10 p-4 rounded-2xl text-xs font-bold text-white focus:border-brand-yellow outline-none"
+            placeholder="Tu nombre artístico"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">ARCHIVO DE AUDIO (.MP3, .WAV, .M4A)</label>
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="w-full bg-black/60 border border-white/10 p-4 rounded-2xl text-xs font-bold text-white focus:border-brand-yellow outline-none file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-brand-yellow file:text-black cursor-pointer"
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={uploading}
+          className="w-full py-4 rounded-2xl bg-brand-yellow hover:bg-yellow-400 text-black font-black uppercase tracking-wider text-xs shadow-glow hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          {uploading ? (
+            <>
+              <Disc className="animate-spin" size={16} />
+              <span>SUBIENDO ARCHIVO...</span>
+            </>
+          ) : (
+            <>
+              <Upload size={16} />
+              <span>PUBLICAR TRACK EN RADIO</span>
+            </>
+          )}
+        </button>
+      </form>
     </div>
   );
 };

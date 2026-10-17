@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User } from 'firebase/auth';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
 interface AuthContextType {
@@ -8,29 +8,53 @@ interface AuthContextType {
   profile: any | null;
   loading: boolean;
   isAdmin: boolean;
-  setProfile: React.Dispatch<React.SetStateAction<any | null>>;
+  setProfile: (profile: any) => void;
+  loginAsDemo?: () => void;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, profile: null, loading: true, isAdmin: false, setProfile: () => {} });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+  isAdmin: false,
+  setProfile: () => {},
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loginAsDemo = () => {
+    const demoProfile = {
+      uid: 'demo_user_1',
+      id: 'demo_user_1',
+      email: 'demo@raplife.com',
+      displayName: 'Fan RapLife',
+      role: 'fan',
+      mainCategory: 'Community',
+      points: 250,
+      xp: 120,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      localStorage.setItem('raplife_demo_session', JSON.stringify(demoProfile));
+    } catch (_) {}
+    setUser({
+      uid: 'demo_user_1',
+      email: 'demo@raplife.com',
+      displayName: 'Fan RapLife'
+    } as any);
+    setProfile(demoProfile);
+    setLoading(false);
+  };
+
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
+    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
       setUser(u);
-      
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-        unsubscribeProfile = null;
-      }
-
       if (u) {
-        // Restore local cached profile immediately for instantaneous page rendering on refresh
         const localCacheKey = `raplife_profile_${u.uid}`;
         try {
           const cached = localStorage.getItem(localCacheKey);
@@ -49,17 +73,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             try {
               localStorage.setItem(localCacheKey, JSON.stringify(data));
             } catch (_) {}
-            
-            // Seed 150k points once to the admin if not already seeded
+
             if (u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' && !data.adminPointsSeeded) {
               setDoc(docRef, { points: 150000, adminPointsSeeded: true }, { merge: true })
-                .catch(err => console.error("Error seeding admin points:", err));
+                .catch(err => console.warn("Error seeding admin points:", err));
             }
+
+            try {
+              fetch('/api/register-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: u.uid, uid: u.uid, ...data, email: u.email || data.email })
+              }).catch(() => {});
+            } catch (_) {}
           } else {
-            // Auto-create initial profile doc IF missing in Firestore
-            const isUserAdmin = u.email?.toLowerCase() === 'minombreesmcfly@gmail.com';
+            const isUserAdmin = u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' || u.email?.toLowerCase() === 'macfly@gmail.com';
             const newUserProfile = {
               uid: u.uid,
+              id: u.uid,
               email: u.email || '',
               displayName: u.displayName || u.email?.split('@')[0] || 'Miembro RapLife',
               artistName: u.displayName || u.email?.split('@')[0] || 'Miembro RapLife',
@@ -69,23 +100,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               mainCategory: isUserAdmin ? 'Admin' : 'Artista',
               points: isUserAdmin ? 150000 : 100,
               xp: 0,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
             };
             setDoc(docRef, newUserProfile, { merge: true })
-              .catch(err => console.error("Error auto-creating Firestore user doc:", err));
+              .catch(err => console.warn("Notice auto-creating Firestore user doc:", err));
             setProfile(newUserProfile);
             try {
               localStorage.setItem(localCacheKey, JSON.stringify(newUserProfile));
             } catch (_) {}
+
+            try {
+              fetch('/api/register-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUserProfile)
+              }).catch(() => {});
+            } catch (_) {}
           }
           setLoading(false);
         }, (err) => {
-          console.error("AuthContext real-time profile listener error:", err);
+          console.warn("AuthContext real-time profile listener notice:", err?.message || err);
+          const isUserAdmin = u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' || u.email?.toLowerCase() === 'macfly@gmail.com';
+          const fallbackProfile = {
+            uid: u.uid,
+            id: u.uid,
+            email: u.email || '',
+            displayName: u.displayName || u.email?.split('@')[0] || 'Miembro RapLife',
+            artistName: u.displayName || u.email?.split('@')[0] || 'Miembro RapLife',
+            photoURL: u.photoURL || '',
+            avatarUrl: u.photoURL || '',
+            role: isUserAdmin ? 'admin' : 'artist',
+            mainCategory: isUserAdmin ? 'Admin' : 'Artista',
+            points: isUserAdmin ? 150000 : 100,
+            xp: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          setProfile(fallbackProfile);
+          try {
+            fetch('/api/register-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(fallbackProfile)
+            }).catch(() => {});
+          } catch (_) {}
           setLoading(false);
         });
       } else {
-        setProfile(null);
+        try {
+          const hasDemo = localStorage.getItem('raplife_demo_session');
+          if (hasDemo) {
+            const parsed = JSON.parse(hasDemo);
+            setUser({ uid: parsed.uid, email: parsed.email, displayName: parsed.displayName } as any);
+            setProfile(parsed);
+          } else {
+            setUser(null);
+            setProfile(null);
+          }
+        } catch (_) {
+          setUser(null);
+          setProfile(null);
+        }
         setLoading(false);
       }
     });
@@ -104,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user?.email?.toLowerCase() === 'macfly@gmail.com';
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAdmin, setProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, isAdmin, setProfile, loginAsDemo }}>
       {children}
     </AuthContext.Provider>
   );

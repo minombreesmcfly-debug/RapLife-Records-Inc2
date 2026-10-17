@@ -97,8 +97,15 @@ export const signInWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (error) {
-    console.error("Error signing in with Google (Popup)", error);
+  } catch (error: any) {
+    const code = error?.code || '';
+    if (code === 'auth/popup-blocked') {
+      console.warn("[AUTH] El navegador o entorno iframe bloqueó la ventana emergente de Google (auth/popup-blocked).");
+    } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      console.log("[AUTH] Ventana de autenticación de Google cerrada por el usuario.");
+    } else {
+      console.warn("[AUTH] Aviso en autenticación con Google (Popup):", error?.message || error);
+    }
     throw error;
   }
 };
@@ -107,8 +114,8 @@ export const signInWithGoogle = async () => {
 export const signInWithGoogleRedirect = async () => {
   try {
     await signInWithRedirect(auth, googleProvider);
-  } catch (error) {
-    console.error("Error signing in with Google (Redirect)", error);
+  } catch (error: any) {
+    console.warn("[AUTH] Aviso en autenticación con Google (Redirect):", error?.message || error);
     throw error;
   }
 };
@@ -121,8 +128,11 @@ export const getRedirectResultHelper = async () => {
 export const logoutUser = async () => {
   try {
     await signOut(auth);
-  } catch (error) {
-    console.error("Error signing out", error);
+    try {
+      localStorage.removeItem('raplife_demo_session');
+    } catch (_) {}
+  } catch (error: any) {
+    console.warn("[AUTH] Error cerrando sesión:", error?.message || error);
     throw error;
   }
 };

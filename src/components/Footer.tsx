@@ -1,6 +1,6 @@
 import React from 'react';
 import { SocialLinks } from './SocialLinks';
-import { Radio, Sparkles, FolderArchive, Download } from 'lucide-react';
+import { Radio, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const Footer: React.FC = () => {
@@ -19,8 +19,7 @@ export const Footer: React.FC = () => {
               <div className="w-full h-full bg-brand-yellow/10 rounded-full animate-pulse absolute inset-0" />
             </div>
             <div className="text-left">
-              <h2 className="text-xl md:text-2xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAPLIFE RECORDS</h2>
-              <p className="text-[8px] md:text-[9px] font-black text-white/40 tracking-[0.3em] uppercase">BOOMBOX RADIO & ECOSYSTEM</p>
+              <h2 className="text-xl md:text-2xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAPLIFE</h2>
             </div>
           </Link>
           <p className="text-[11px] text-gray-300/90 max-w-lg font-medium leading-normal">
@@ -40,20 +39,6 @@ export const Footer: React.FC = () => {
 
           {/* SOCIAL LINKS BADGES */}
           <SocialLinks variant="footer" className="pt-0.5" />
-
-          {/* DIRECT ZIP DOWNLOAD BUTTON */}
-          <div className="pt-2 border-t border-white/10 flex justify-center">
-            <a
-              href="/raplife-records-website.zip"
-              download="raplife-records-website.zip"
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-brand-yellow/15 hover:bg-brand-yellow text-brand-yellow hover:text-black border border-brand-yellow/40 font-mono font-black text-[10px] uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
-              title="Descargar código fuente completo en archivo .ZIP"
-            >
-              <FolderArchive size={13} />
-              <span>DESCARGAR WEBSITE COMPLETO (.ZIP)</span>
-              <Download size={12} />
-            </a>
-          </div>
         </div>
 
         {/* FOOTER BOTTOM METADATA & COPYRIGHT */}
