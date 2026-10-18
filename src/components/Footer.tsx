@@ -19,7 +19,7 @@ export const Footer: React.FC = () => {
               <div className="w-full h-full bg-brand-yellow/10 rounded-full animate-pulse absolute inset-0" />
             </div>
             <div className="text-left">
-              <h2 className="text-xl md:text-2xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAPLIFE</h2>
+              <h2 className="text-xl md:text-2xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAP LIVE</h2>
             </div>
           </Link>
           <p className="text-[11px] text-gray-300/90 max-w-lg font-medium leading-normal">

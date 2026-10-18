@@ -1,30 +1,38 @@
 import React, { useState, useRef } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { User, Mic2, Disc, Sparkles, Upload, Check } from 'lucide-react';
+import { User, Mic2, ArrowRight, Disc, Sparkles, Upload, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react';
 
 const ProfileSetupView = () => {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const [step, setStep] = useState(1);
   const [role, setRole] = useState<'fan' | 'artist'>('fan');
   const [category, setCategory] = useState('');
   const [plan, setPlan] = useState<'rookie' | 'pro' | 'fan'>('fan');
   const [spotifyUrl, setSpotifyUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Avatar-specific onboarding state
+  const [acceptedEcosystem, setAcceptedEcosystem] = useState<boolean>(true);
+  const [avatarSelfie, setAvatarSelfie] = useState<string | null>(null);
+  const [avatarMime, setAvatarMime] = useState<string>('image/jpeg');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!user) return null;
   if (profile) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] p-10 text-center animate-pulse">
+    <div className="flex flex-col items-center justify-center min-h-[80vh] p-10 text-center animate-pulse">
        <Disc className="animate-spin text-brand-yellow mb-4" size={48} />
        <h1 className="text-2xl font-black italic uppercase">ABRIENDO EL ESTUDIO...</h1>
        <p className="text-gray-500 font-bold mt-2">Ya tienes un perfil configurado.</p>
     </div>
   );
 
-  const handleFinish = async () => {
+  const handleFinish = async (accepted: boolean, selfieBase64: string | null) => {
     setSubmitting(true);
     try {
       const isMcFly = user.email?.toLowerCase() === 'minombreesmcfly@gmail.com' || user.email?.toLowerCase() === 'macfly@gmail.com';
@@ -32,21 +40,23 @@ const ProfileSetupView = () => {
         uid: user.uid,
         id: user.uid,
         email: user.email,
-        displayName: user.displayName || user.email?.split('@')[0] || 'Miembro RapLife',
-        artistName: user.displayName || user.email?.split('@')[0] || 'Miembro RapLife',
-        photoURL: user.photoURL || '',
+        displayName: user.displayName,
+        artistName: user.displayName,
+        photoURL: user.photoURL,
         role: role,
         category: category,
         mainCategory: category || (role === 'artist' ? 'Artista' : 'Community'),
         plan: role === 'artist' ? plan : 'fan',
         spotifyUrl: role === 'artist' ? spotifyUrl : '',
-        points: isMcFly ? 150000 : 100,
+        points: isMcFly ? 150000 : 0,
         adminPointsSeeded: isMcFly,
         createdAt: new Date().toISOString(),
         isPinned: false,
         bio: '',
-        acceptedEcosystem: true,
-        avatarUrl: user.photoURL || '',
+        acceptedEcosystem: accepted,
+        avatarSelfieUrl: selfieBase64 || '',
+        avatarUrl: selfieBase64 || user.photoURL || '',
+        hasAvatar: !!selfieBase64,
       };
 
       try {
@@ -55,6 +65,7 @@ const ProfileSetupView = () => {
         console.warn("Firestore setDoc warning in handleFinish:", dbErr);
       }
 
+      // Also register on server so Admin immediately has access
       try {
         await fetch('/api/register-user', {
           method: 'POST',
@@ -65,86 +76,249 @@ const ProfileSetupView = () => {
         console.warn("Server user registration notice:", srvErr);
       }
 
-      window.location.href = '/';
+      window.location.href = '/'; // Hard reload to refresh context
     } catch (e) {
       console.error(e);
       setSubmitting(false);
     }
   };
 
+  const categories = {
+    artist: ['RAPERO', 'BEATMAKER', 'PRODUCTOR', 'COMPOSITOR', 'FREESTYLER'],
+    fan: ['BAILARÍN', 'ME GUSTA EL RAP', 'BEATBOXER', 'GRAFFITERO', 'OYENTE ACTIVO']
+  };
+
+  const plans = [
+    {
+      id: 'rookie',
+      name: 'RAPLIFE RECORDS ROOKIE',
+      price: '$100',
+      period: '/mes',
+      features: [
+        '3 tracks en rotación en Radio',
+        '1 Visualizer IA de alta calidad',
+        'Cameos en videos de otros artistas'
+      ],
+      color: 'border-white/10'
+    },
+    {
+      id: 'pro',
+      name: 'RAPLIFE PRO',
+      price: '$199',
+      period: '/mes',
+      features: [
+        'Rotación prioritaria en Radio',
+        '2 Visuales IA de alta calidad',
+        'Promoción en nuestras Stories',
+        '10 clips cinematográficos TikTok'
+      ],
+      color: 'border-brand-yellow/50'
+    }
+  ];
+
+  // Drag and Drop helpers for onboard selfie
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileProcess(file);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileProcess(file);
+  };
+
+  const handleFileProcess = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido.');
+      return;
+    }
+    setAvatarMime(file.type);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setAvatarSelfie(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
-    <div className="max-w-xl mx-auto p-6 md:p-8 space-y-6 bg-brand-dark border-4 border-boombox-gray rounded-[2.5rem] text-left boombox-texture">
-      <div className="flex items-center gap-3">
-        <div className="p-3 bg-brand-yellow text-black rounded-2xl">
-          <Sparkles size={24} />
-        </div>
-        <div>
-          <h2 className="text-2xl font-black italic uppercase text-white tracking-tight">CONFIGURA TU PERFIL</h2>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">ÚNETE AL MOVIMIENTO RAPLIFE</p>
-        </div>
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-[80vh] p-4 md:p-10 max-w-4xl mx-auto text-center py-20">
+      <AnimatePresence mode="wait">
+        {step === 1 && (
+          <motion.div
+            key="step1"
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -20, opacity: 0 }}
+            className="space-y-10 w-full"
+          >
+            <div className="space-y-4">
+              <h1 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter glow-yellow leading-none">BIENVENIDO</h1>
+              <p className="text-lg text-gray-500 font-bold uppercase tracking-widest italic underline decoration-brand-yellow decoration-2 underline-offset-8">¿QUÉ ERES EN LA CALLE?</p>
+            </div>
 
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">TIPO DE MIEMBRO</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setRole('fan')}
-              className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                role === 'fan' ? 'border-brand-yellow bg-brand-yellow/10' : 'border-white/10 bg-black/40'
-              }`}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+              <button 
+                onClick={() => { setRole('fan'); setPlan('fan'); }}
+                className={`p-8 md:p-10 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-5 relative overflow-hidden group ${role === 'fan' ? 'border-brand-yellow bg-brand-yellow/5 shadow-glow scale-[1.02]' : 'border-white/5 hover:border-white/20 bg-white/[0.02]'}`}
+              >
+                <div className={`p-5 rounded-2xl transition-all shadow-xl ${role === 'fan' ? 'bg-brand-yellow text-black rotate-3' : 'bg-white/10 group-hover:rotate-6'}`}>
+                  <User size={40} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black italic uppercase tracking-tight">RAPLIFE FAN</h3>
+                  <p className="text-xs text-gray-500 font-bold uppercase mt-2 leading-relaxed">No rapeo, pero vivo la cultura. Acumulo puntos para premios.</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => setRole('artist')}
+                className={`p-8 md:p-10 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-5 relative overflow-hidden group ${role === 'artist' ? 'border-brand-yellow bg-brand-yellow/5 shadow-glow scale-[1.02]' : 'border-white/5 hover:border-white/20 bg-white/[0.02]'}`}
+              >
+                 <div className={`p-5 rounded-2xl transition-all shadow-xl ${role === 'artist' ? 'bg-brand-yellow text-black -rotate-3' : 'bg-white/10 group-hover:-rotate-6'}`}>
+                  <Mic2 size={40} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black italic uppercase tracking-tight">ARTISTA</h3>
+                  <p className="text-xs text-gray-500 font-bold uppercase mt-2 leading-relaxed">Raperos, beatmakers y productores. Sube tu música a la radio.</p>
+                </div>
+              </button>
+            </div>
+
+            <button 
+              onClick={() => setStep(2)}
+              className="w-full md:w-auto px-12 py-5 bg-brand-yellow text-black font-black italic text-xl uppercase tracking-tighter rounded-xl hover:scale-105 transition-all flex items-center justify-center gap-4 mx-auto group"
             >
-              <User size={20} className="text-brand-yellow mb-2" />
-              <div className="font-black text-sm uppercase text-white">FAN / OYENTE</div>
-              <div className="text-[10px] text-gray-400 mt-1">Escucha, acumula puntos y apoya a artistas</div>
+              CONTINUAR <ArrowRight size={24} className="group-hover:translate-x-2 transition-transform" />
             </button>
-            <button
-              type="button"
-              onClick={() => setRole('artist')}
-              className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                role === 'artist' ? 'border-brand-yellow bg-brand-yellow/10' : 'border-white/10 bg-black/40'
-              }`}
-            >
-              <Mic2 size={20} className="text-brand-yellow mb-2" />
-              <div className="font-black text-sm uppercase text-white">ARTISTA / MC</div>
-              <div className="text-[10px] text-gray-400 mt-1">Sube música, promociona tracks y colabora</div>
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">CATEGORÍA / ESPECIALIDAD</label>
-          <input
-            type="text"
-            placeholder="Ej: Rapero, Productor, Beatmaker, Freestyler, Fan Activo"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full bg-black/60 border border-white/10 p-3.5 rounded-2xl text-xs font-bold text-white focus:border-brand-yellow outline-none"
-          />
-        </div>
-
-        {role === 'artist' && (
-          <div>
-            <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">SPOTIFY ARTIST URL (OPCIONAL)</label>
-            <input
-              type="text"
-              placeholder="https://open.spotify.com/artist/..."
-              value={spotifyUrl}
-              onChange={(e) => setSpotifyUrl(e.target.value)}
-              className="w-full bg-black/60 border border-white/10 p-3.5 rounded-2xl text-xs font-bold text-white focus:border-brand-yellow outline-none"
-            />
-          </div>
+          </motion.div>
         )}
 
-        <button
-          onClick={handleFinish}
-          disabled={submitting}
-          className="w-full py-4 rounded-2xl bg-brand-yellow hover:bg-yellow-400 text-black font-black uppercase tracking-wider text-xs shadow-glow hover:scale-[1.02] active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-        >
-          {submitting ? 'GUARDANDO...' : 'FINALIZAR REGISTRO'}
-        </button>
-      </div>
+        {step === 2 && (
+          <motion.div
+            key="step2"
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -20, opacity: 0 }}
+            className="space-y-10 w-full"
+          >
+            <div className="space-y-4">
+              <h2 className="text-4xl md:text-6xl font-black italic uppercase tracking-tighter">ELIGE TU ROL</h2>
+              <p className="text-gray-500 font-bold uppercase tracking-widest italic underline decoration-brand-yellow decoration-2 underline-offset-8">PERSONALIZA TU PERFIL</p>
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-4">
+              {categories[role].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCategory(cat)}
+                  className={`px-8 py-4 rounded-2xl border-2 font-black italic uppercase text-lg transition-all ${category === cat ? 'bg-brand-yellow text-black border-brand-yellow shadow-glow scale-110' : 'bg-white/5 border-white/10 hover:border-white/30 text-white'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {role === 'artist' && (
+              <div className="w-full max-w-xl mx-auto space-y-2 text-left bg-black/40 p-6 rounded-3xl border border-white/5">
+                <label className="text-[10px] font-black tracking-widest text-[#a1a1a1] uppercase block">
+                  🎨 TU ENLACE DE ARTISTA EN SPOTIFY (OPCIONAL)
+                </label>
+                <input 
+                  type="url"
+                  placeholder="https://open.spotify.com/artist/..."
+                  className="w-full bg-neutral-900 border border-neutral-800 p-4 rounded-xl text-xs text-white focus:border-brand-yellow outline-none font-bold"
+                  value={spotifyUrl}
+                  onChange={(e) => setSpotifyUrl(e.target.value)}
+                />
+                <p className="text-[9px] text-[#555] font-black uppercase mt-1 leading-snug">
+                  Asocia tu canal original para que tus fans puedan escucharte en las consolas y playlists de RapLife Records.
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col md:flex-row gap-4 justify-center">
+              <button onClick={() => setStep(1)} className="px-8 py-4 bg-white/5 text-white/50 font-bold uppercase italic rounded-xl hover:bg-white/10">ATRÁS</button>
+              <button 
+                onClick={() => role === 'artist' ? setStep(3) : handleFinish(false, null)}
+                disabled={!category || submitting}
+                className="px-12 py-5 bg-brand-yellow text-black font-black italic text-xl uppercase tracking-tighter rounded-xl hover:scale-105 transition-all disabled:opacity-20"
+              >
+                {role === 'artist' ? 'SELECCIONAR PLAN' : 'FINALIZAR REGISTRO'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 3 && role === 'artist' && (
+          <motion.div
+            key="step3"
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -20, opacity: 0 }}
+            className="space-y-10 w-full"
+          >
+            <div className="space-y-4">
+              <h2 className="text-4xl md:text-6xl font-black italic uppercase tracking-tighter">PLANES PARA EL GHETTO</h2>
+              <p className="text-gray-500 font-bold uppercase tracking-widest italic underline decoration-brand-yellow decoration-2 underline-offset-8">IMPULSA TU CARRERA MUSICAL</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {plans.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setPlan(p.id as any)}
+                  className={`p-8 rounded-[2.5rem] border-4 text-left transition-all relative overflow-hidden flex flex-col justify-between ${plan === p.id ? 'border-brand-yellow bg-brand-yellow/5 shadow-glow scale-[1.02]' : 'border-white/5 bg-white/[0.02] hover:border-white/10'}`}
+                >
+                   <div className="space-y-6">
+                      <div>
+                        <h4 className="text-2xl font-black italic uppercase tracking-tight text-white mb-2">{p.name}</h4>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-4xl font-black text-brand-yellow italic">{p.price}</span>
+                          <span className="text-xs font-bold text-gray-500 uppercase">{p.period}</span>
+                        </div>
+                      </div>
+                      
+                      <ul className="space-y-3">
+                        {p.features.map((f, i) => (
+                          <li key={i} className="flex items-start gap-3 text-xs font-bold text-gray-400 uppercase tracking-tight">
+                            <span className="w-1.5 h-1.5 bg-brand-yellow rounded-full mt-1 shrink-0" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                   </div>
+
+                   <div className={`mt-8 py-3 w-full text-center rounded-xl font-black italic uppercase text-sm ${plan === p.id ? 'bg-brand-yellow text-black shadow-lg' : 'bg-white/10 text-white'}`}>
+                      {plan === p.id ? 'PLAN SELECCIONADO' : 'ELEGIR PLAN'}
+                   </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4 justify-center">
+              <button onClick={() => setStep(2)} className="px-8 py-4 bg-white/5 text-white/50 font-bold uppercase italic rounded-xl hover:bg-white/10">ATRÁS</button>
+              <button 
+                onClick={() => handleFinish(false, null)}
+                disabled={submitting}
+                className="px-12 py-5 bg-brand-yellow text-black font-black italic text-xl uppercase tracking-tighter rounded-xl hover:scale-105 transition-all disabled:opacity-20"
+              >
+                FINALIZAR REGISTRO
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

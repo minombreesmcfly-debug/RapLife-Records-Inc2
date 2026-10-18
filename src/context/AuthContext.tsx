@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from 'firebase/auth';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
 interface AuthContextType {
@@ -8,16 +8,17 @@ interface AuthContextType {
   profile: any | null;
   loading: boolean;
   isAdmin: boolean;
-  setProfile: (profile: any) => void;
-  loginAsDemo?: () => void;
+  setProfile: React.Dispatch<React.SetStateAction<any | null>>;
+  loginAsDemo: (email?: string, name?: string, role?: string) => void;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  profile: null,
-  loading: true,
-  isAdmin: false,
+const AuthContext = createContext<AuthContextType>({ 
+  user: null, 
+  profile: null, 
+  loading: true, 
+  isAdmin: false, 
   setProfile: () => {},
+  loginAsDemo: () => {}
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -25,36 +26,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loginAsDemo = () => {
-    const demoProfile = {
-      uid: 'demo_user_1',
-      id: 'demo_user_1',
-      email: 'demo@raplife.com',
-      displayName: 'Fan RapLife',
-      role: 'fan',
-      mainCategory: 'Community',
-      points: 250,
-      xp: 120,
-      createdAt: new Date().toISOString()
+  const loginAsDemo = (
+    email: string = 'minombreesmcfly@gmail.com', 
+    name: string = 'McFly (Admin)', 
+    role: string = 'admin'
+  ) => {
+    const isUserAdmin = role === 'admin' || email.toLowerCase() === 'minombreesmcfly@gmail.com';
+    const demoUser: any = {
+      uid: 'admin_mcfly_preview',
+      email,
+      displayName: name,
+      photoURL: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400',
+      emailVerified: true
     };
-    try {
-      localStorage.setItem('raplife_demo_session', JSON.stringify(demoProfile));
-    } catch (_) {}
-    setUser({
-      uid: 'demo_user_1',
-      email: 'demo@raplife.com',
-      displayName: 'Fan RapLife'
-    } as any);
+    const demoProfile: any = {
+      uid: demoUser.uid,
+      email,
+      displayName: name,
+      artistName: name,
+      photoURL: demoUser.photoURL,
+      avatarUrl: demoUser.photoURL,
+      role: isUserAdmin ? 'admin' : role,
+      mainCategory: isUserAdmin ? 'Admin' : 'Artista',
+      points: 150000,
+      xp: 1000
+    };
+    setUser(demoUser);
     setProfile(demoProfile);
     setLoading(false);
+    try {
+      localStorage.setItem('raplife_demo_session', JSON.stringify({ user: demoUser, profile: demoProfile }));
+    } catch (_) {}
   };
 
   useEffect(() => {
+    // Check for local demo session if offline or in iframe sandbox
+    try {
+      const savedDemo = localStorage.getItem('raplife_demo_session');
+      if (savedDemo) {
+        const parsed = JSON.parse(savedDemo);
+        if (parsed.user && parsed.profile) {
+          setUser(parsed.user);
+          setProfile(parsed.profile);
+        }
+      }
+    } catch (_) {}
+
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
-      setUser(u);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       if (u) {
+        setUser(u);
+        try {
+          localStorage.removeItem('raplife_demo_session');
+        } catch (_) {}
+      }
+      
+      if (unsubscribeProfile) {
+        unsubscribeProfile();
+        unsubscribeProfile = null;
+      }
+
+      if (u) {
+        // Restore local cached profile immediately for instantaneous page rendering on refresh
         const localCacheKey = `raplife_profile_${u.uid}`;
         try {
           const cached = localStorage.getItem(localCacheKey);
@@ -73,12 +107,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             try {
               localStorage.setItem(localCacheKey, JSON.stringify(data));
             } catch (_) {}
-
+            
+            // Seed 150k points once to the admin if not already seeded
             if (u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' && !data.adminPointsSeeded) {
               setDoc(docRef, { points: 150000, adminPointsSeeded: true }, { merge: true })
                 .catch(err => console.warn("Error seeding admin points:", err));
             }
 
+            // Sync with server registry for instant admin visibility
             try {
               fetch('/api/register-user', {
                 method: 'POST',
@@ -87,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }).catch(() => {});
             } catch (_) {}
           } else {
+            // Auto-create initial profile doc IF missing in Firestore
             const isUserAdmin = u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' || u.email?.toLowerCase() === 'macfly@gmail.com';
             const newUserProfile = {
               uid: u.uid,
@@ -110,6 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               localStorage.setItem(localCacheKey, JSON.stringify(newUserProfile));
             } catch (_) {}
 
+            // Immediately register with server registry
             try {
               fetch('/api/register-user', {
                 method: 'POST',
@@ -121,6 +159,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
         }, (err) => {
           console.warn("AuthContext real-time profile listener notice:", err?.message || err);
+          
+          // Fallback if firestore listener is offline or fails: still register user with server
           const isUserAdmin = u.email?.toLowerCase() === 'minombreesmcfly@gmail.com' || u.email?.toLowerCase() === 'macfly@gmail.com';
           const fallbackProfile = {
             uid: u.uid,
@@ -148,13 +188,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
         });
       } else {
+        // If no Firebase user and no demo session
         try {
           const hasDemo = localStorage.getItem('raplife_demo_session');
-          if (hasDemo) {
-            const parsed = JSON.parse(hasDemo);
-            setUser({ uid: parsed.uid, email: parsed.email, displayName: parsed.displayName } as any);
-            setProfile(parsed);
-          } else {
+          if (!hasDemo) {
             setUser(null);
             setProfile(null);
           }

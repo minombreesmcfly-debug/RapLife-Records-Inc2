@@ -32,35 +32,9 @@ function cleanCloudinarySecret(s?: string): string {
 }
 
 // Cloudinary initialization with credentials provided
-let urlApiKey = '';
-let urlApiSecret = '';
-let urlCloudName = '';
-
-if (
-  process.env.CLOUDINARY_URL &&
-  process.env.CLOUDINARY_URL.startsWith('cloudinary://') &&
-  !process.env.CLOUDINARY_URL.includes('<your_api_key>') &&
-  !process.env.CLOUDINARY_URL.includes('<your_api_secret>')
-) {
-  try {
-    const rawUrl = process.env.CLOUDINARY_URL.trim();
-    const u = new URL(rawUrl);
-    urlApiKey = decodeURIComponent(u.username || '');
-    urlApiSecret = decodeURIComponent(u.password || '');
-    urlCloudName = decodeURIComponent(u.hostname || '');
-  } catch (_) {
-    const m = process.env.CLOUDINARY_URL.match(/cloudinary:\/\/([^:]+):([^@]+)@([^\/\s]+)/);
-    if (m) {
-      urlApiKey = m[1];
-      urlApiSecret = m[2];
-      urlCloudName = m[3];
-    }
-  }
-}
-
-const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME || urlCloudName || process.env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech';
-const cloudinaryApiKey = cleanCloudinaryKey(process.env.CLOUDINARY_API_KEY || urlApiKey || process.env.VITE_CLOUDINARY_API_KEY || '');
-const cloudinaryApiSecret = cleanCloudinarySecret(process.env.CLOUDINARY_API_SECRET || urlApiSecret || process.env.VITE_CLOUDINARY_API_SECRET || 'XDWRGIqsyiQYfs4qCwCQaHJ12po');
+const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech';
+const cloudinaryApiKey = cleanCloudinaryKey(process.env.CLOUDINARY_API_KEY || process.env.VITE_CLOUDINARY_API_KEY || '');
+const cloudinaryApiSecret = cleanCloudinarySecret(process.env.CLOUDINARY_API_SECRET || process.env.VITE_CLOUDINARY_API_SECRET || 'XDWRGIqsyiQYfs4qCwCQaHJ12po');
 
 try {
   if (
@@ -72,7 +46,7 @@ try {
     cloudinary.config({
       cloudinary_url: process.env.CLOUDINARY_URL
     });
-    console.log(`[SERVER] Initialized Cloudinary via CLOUDINARY_URL (cloud: ${cloudinaryCloudName})`);
+    console.log(`[SERVER] Initialized Cloudinary via CLOUDINARY_URL`);
   } else {
     cloudinary.config({
       cloud_name: cloudinaryCloudName,
@@ -2072,15 +2046,6 @@ CRITICAL STYLING RULES:
         code: error.code || 'unknown'
       });
     }
-  });
-
-  // Public Cloudinary config endpoint for frontend client
-  app.get('/api/cloudinary-config', (req: any, res: any) => {
-    res.json({
-      cloudName: cloudinaryCloudName,
-      uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || process.env.VITE_CLOUDINARY_UPLOAD_PRESET || '',
-      hasServerUpload: true
-    });
   });
 
   // Dedicated Cloudinary direct upload endpoint
