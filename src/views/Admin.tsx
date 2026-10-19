@@ -1432,7 +1432,7 @@ const AdminView = () => {
             artistName: 'RAPLIFE RADIO',
             title: localRadioFile.name.replace(/\.[^/.]+$/, "").trim(),
             audioUrl: audioUrl,
-            coverUrl: '/assets/player_idle.png',
+            coverUrl: '',
             isRadioInterstitial: false,
             approved: true,
             status: 'approved',
@@ -1477,7 +1477,7 @@ const AdminView = () => {
           artistName: directRadioArtist.trim() || 'RAPLIFE RECORDS',
           title: directRadioTitle.trim(),
           audioUrl: directRadioUrl.trim(),
-          coverUrl: '/assets/player_idle.png',
+          coverUrl: '',
           isRadioInterstitial: false,
           approved: true,
           status: 'approved',
@@ -2211,136 +2211,7 @@ const AdminView = () => {
         </div>
       )}
 
-      {/* CLOUDINARY INTEGRATION & CREDENTIALS CARD */}
-      <div className="bg-brand-dark p-6 md:p-8 rounded-[2rem] border-4 border-boombox-gray space-y-6 text-left relative overflow-hidden group">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-sky-500/20 text-sky-400 rounded-2xl border border-sky-500/30">
-              <Cloud size={26} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-black italic tracking-tighter uppercase text-white">CONEXIÓN CLOUDINARY</h2>
-                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  ACTIVO ({cloudinarySettings.cloudName || 'rmyvnech'})
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mt-0.5">
-                Almacenamiento global CDN para canciones, beats y pistas de la radio sin cortes en Vercel
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleTestCloudinary}
-              disabled={testingCloudinary}
-              className="px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-2 active:scale-95 disabled:opacity-50"
-            >
-              <RefreshCw size={13} className={testingCloudinary ? 'animate-spin' : ''} />
-              <span>{testingCloudinary ? 'PROBANDO...' : 'PROBAR CONEXIÓN'}</span>
-            </button>
-
-            <button
-              onClick={handleSaveCloudinaryConfig}
-              disabled={savingCloudinary}
-              className="px-5 py-2 bg-brand-yellow hover:bg-yellow-400 text-black rounded-xl text-xs font-black uppercase transition-all shadow-glow cursor-pointer active:scale-95 disabled:opacity-50"
-            >
-              <span>{savingCloudinary ? 'GUARDANDO...' : 'GUARDAR CREDENCIALES'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Inputs Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-              <span>CLOUD NAME</span>
-              <span className="text-brand-yellow">*</span>
-            </label>
-            <input
-              type="text"
-              value={cloudinarySettings.cloudName}
-              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, cloudName: e.target.value }))}
-              placeholder="rmyvnech"
-              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-              <span>API KEY (CLOUDINARY)</span>
-              <span className="text-gray-500 text-[9px]">(Ej: 15 dígitos)</span>
-            </label>
-            <input
-              type="text"
-              value={cloudinarySettings.apiKey || ''}
-              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, apiKey: e.target.value }))}
-              placeholder="Pega tu API Key de Cloudinary"
-              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                <span>API SECRET</span>
-                <span className="text-brand-yellow">*</span>
-              </label>
-              <button 
-                type="button" 
-                onClick={() => setShowApiSecret(!showApiSecret)}
-                className="text-[9px] text-gray-400 hover:text-white uppercase font-bold"
-              >
-                {showApiSecret ? 'Ocultar' : 'Ver'}
-              </button>
-            </div>
-            <div className="relative">
-              <input
-                type={showApiSecret ? 'text' : 'password'}
-                value={cloudinarySettings.apiSecret || ''}
-                onChange={(e) => setCloudinarySettings(prev => ({ ...prev, apiSecret: e.target.value }))}
-                placeholder="XDWRGIqsyiQYfs4qCwCQaHJ12po"
-                className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none pr-9"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiSecret(!showApiSecret)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
-              >
-                {showApiSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-              <span>UPLOAD PRESET (UNSIGNED)</span>
-              <span className="text-gray-500 text-[9px]">(Opcional)</span>
-            </label>
-            <input
-              type="text"
-              value={cloudinarySettings.uploadPreset || ''}
-              onChange={(e) => setCloudinarySettings(prev => ({ ...prev, uploadPreset: e.target.value }))}
-              placeholder="Ej: raplife_preset o ml_default"
-              className="w-full bg-black/60 border border-white/10 focus:border-brand-yellow rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none"
-            />
-          </div>
-        </div>
-
-        {cloudinaryTestResult && (
-          <div className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
-            cloudinaryTestResult.success 
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-              : 'bg-red-500/10 border-red-500/30 text-red-400'
-          }`}>
-            {cloudinaryTestResult.success ? <Check size={14} /> : <X size={14} />}
-            <span>{cloudinaryTestResult.message}</span>
-          </div>
-        )}
-      </div>
-
+      {/* Grid: Admin Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
         {/* Left Column: Unified Radio Controls */}
         <div className="space-y-10 flex flex-col">
@@ -2413,41 +2284,30 @@ const AdminView = () => {
               </div>
 
               {currentTrack ? (
-                <div className="flex items-center gap-4">
-                  {/* Thumbnail Cover */}
-                  <div className="relative w-14 h-14 rounded-xl overflow-hidden border-2 border-white/10 shrink-0 bg-neutral-900 flex items-center justify-center">
-                    {currentTrack.coverUrl ? (
-                      <img referrerPolicy="no-referrer" src={currentTrack.coverUrl || "/assets/player_idle.png"} className="w-full h-full object-cover" alt="Cover" />
-                    ) : (
-                      <Music className="text-gray-600" size={20} />
-                    )}
-                    {isPlaying && (
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <div className="flex gap-0.5 items-end h-5">
-                          <span className="w-[3px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.6s' }}></span>
-                          <span className="w-[3px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.9s', animationDelay: '0.15s' }}></span>
-                          <span className="w-[3px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.7s', animationDelay: '0.3s' }}></span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Metadata & Progress details */}
-                  <div className="flex-1 min-w-0 space-y-1">
+                <div className="space-y-1.5 py-1">
+                  {/* Metadata & Progress details (Sin portada) */}
+                  <div className="flex items-center justify-between gap-2">
                     <p className="font-bold text-xs text-white truncate uppercase tracking-tighter">
                       {currentTrack.title || currentTrack.fullName}
                     </p>
-                    <p className="text-[10px] text-brand-yellow truncate uppercase font-bold tracking-tight">
-                      {currentTrack.artistName || 'LOCUTOR / INVITADO'}
-                    </p>
-                    
-                    {/* Simulated visual progress bar */}
-                    <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden mt-2">
-                      <div 
-                        className={`bg-brand-yellow h-full ${isPlaying ? 'animate-pulse' : ''}`}
-                        style={{ width: isPlaying ? '60%' : '20%' }}
-                      ></div>
-                    </div>
+                    {isPlaying && (
+                      <div className="flex gap-0.5 items-end h-3 shrink-0">
+                        <span className="w-[2.5px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.6s' }}></span>
+                        <span className="w-[2.5px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.9s', animationDelay: '0.15s' }}></span>
+                        <span className="w-[2.5px] bg-brand-yellow animate-bounce" style={{ animationDuration: '0.7s', animationDelay: '0.3s' }}></span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-brand-yellow truncate uppercase font-bold tracking-tight">
+                    {currentTrack.artistName || 'LOCUTOR / INVITADO'}
+                  </p>
+                  
+                  {/* Simulated visual progress bar */}
+                  <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-2">
+                    <div 
+                      className={`bg-brand-yellow h-full ${isPlaying ? 'animate-pulse' : ''}`}
+                      style={{ width: isPlaying ? '60%' : '20%' }}
+                    ></div>
                   </div>
                 </div>
               ) : (
@@ -2603,7 +2463,7 @@ const AdminView = () => {
                         <label className="text-[8px] font-black text-gray-500 uppercase tracking-widest block ml-1">TÍTULO DEL TRACK</label>
                         <input 
                           type="text" 
-                          placeholder="EJ: REAL RAP LIVE"
+                          placeholder="EJ: REAL RAPLIFE"
                           className="w-full bg-black/60 border border-white/5 p-3 rounded-xl focus:border-brand-yellow outline-none text-xs text-white"
                           value={directRadioTitle}
                           onChange={e => setDirectRadioTitle(e.target.value)}

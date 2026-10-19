@@ -530,7 +530,7 @@ const AppContent = () => {
                  <div className="w-full h-full bg-brand-yellow/10 rounded-full animate-pulse absolute inset-0" />
               </div>
               <div className="text-left">
-                <h1 className="text-lg md:text-3xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAP LIVE</h1>
+                <h1 className="text-lg md:text-3xl font-black tracking-tighter glow-yellow italic uppercase leading-none">RAPLIFE</h1>
               </div>
             </Link>
 

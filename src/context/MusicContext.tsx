@@ -42,7 +42,7 @@ const DEFAULT_RADIO_FALLBACK: Track = {
   artistName: 'RAPLIFE RADIO 99.1 FM',
   title: 'RapLife Official Radio Station',
   audioUrl: '/assets/radio/Welcome.mp3',
-  coverUrl: '/assets/player_idle.png',
+  coverUrl: '',
   fullName: 'RapLife Live Station'
 };
 

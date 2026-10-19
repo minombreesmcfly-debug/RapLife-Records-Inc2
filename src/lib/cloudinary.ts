@@ -46,19 +46,29 @@ export async function getCloudinaryConfig(): Promise<CloudinaryConfig> {
     if (metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET) resolved.uploadPreset = metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET;
   } catch (_) {}
 
-  // 3. Override with Firestore config document if available
-  try {
-    const docSnap = await getDoc(doc(db, 'config', 'cloudinary'));
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      if (data.cloudName) resolved.cloudName = data.cloudName.trim();
-      if (data.apiKey) resolved.apiKey = data.apiKey.trim();
-      if (data.apiSecret) resolved.apiSecret = data.apiSecret.trim();
-      if (data.uploadPreset) resolved.uploadPreset = data.uploadPreset.trim();
+    // 3. Override with Firestore config document if available
+    try {
+      const docSnap = await getDoc(doc(db, 'config', 'cloudinary'));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.cloudName) resolved.cloudName = data.cloudName.trim();
+        if (data.apiKey) resolved.apiKey = data.apiKey.trim();
+        if (data.apiSecret) resolved.apiSecret = data.apiSecret.trim();
+        if (data.uploadPreset) resolved.uploadPreset = data.uploadPreset.trim();
+      }
+    } catch (err) {
+      console.warn('[CLOUDINARY] Could not fetch config from Firestore, using env/defaults:', err);
     }
-  } catch (err) {
-    console.warn('[CLOUDINARY] Could not fetch config from Firestore, using env/defaults:', err);
-  }
+
+    // 4. Fallback to /api/cloudinary-config from backend if available
+    try {
+      const apiRes = await fetch('/api/cloudinary-config');
+      if (apiRes.ok) {
+        const apiData = await apiRes.json();
+        if (apiData.cloudName && !resolved.cloudName) resolved.cloudName = apiData.cloudName;
+        if (apiData.uploadPreset && !resolved.uploadPreset) resolved.uploadPreset = apiData.uploadPreset;
+      }
+    } catch (_) {}
 
   // Clean placeholder or broken values
   if (resolved.apiKey) {

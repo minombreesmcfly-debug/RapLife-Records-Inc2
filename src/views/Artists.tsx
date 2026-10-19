@@ -1,90 +1,116 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Search, User, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { Users, Music, ExternalLink, Star } from 'lucide-react';
 
-const ArtistsView = () => {
+const ArtistsView: React.FC = () => {
   const [artists, setArtists] = useState<any[]>([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchArtists = async () => {
       try {
-        const q = query(collection(db, 'users'), limit(100));
-        const snap = await getDocs(q);
-        const rawUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        const mappedUsers = rawUsers.map((data: any) => {
-          const dispName = (data.displayName || data.artistName || data.email?.split('@')[0] || '').trim();
-          return {
-            ...data,
-            displayName: dispName || 'Miembro RapLife'
-          };
-        });
+        let list: any[] = [];
+        try {
+          const q = query(collection(db, 'users'));
+          const snap = await getDocs(q);
+          list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (_) {}
 
-        setArtists(mappedUsers);
+        try {
+          const sRes = await fetch('/api/users');
+          if (sRes.ok) {
+            const sList = await sRes.json();
+            const map = new Map<string, any>();
+            for (const a of sList) {
+              const k = a.id || a.uid || a.email;
+              if (k) map.set(k, a);
+            }
+            for (const a of list) {
+              const k = a.id || a.uid || a.email;
+              if (k) {
+                const prev = map.get(k) || {};
+                map.set(k, { ...prev, ...a });
+              }
+            }
+            list = Array.from(map.values());
+          }
+        } catch (_) {}
+
+        setArtists(list);
       } catch (err) {
-        console.warn("[ARTISTS] Failed to fetch artists roster offline:", err);
-        setArtists([]);
+        console.warn('Error fetching artists:', err);
       } finally {
         setLoading(false);
       }
     };
+
     fetchArtists();
   }, []);
 
-  const filtered = artists.filter(a => 
-    a.displayName?.toLowerCase().includes(search.toLowerCase())
-  );
-
   return (
-    <div className="p-4 md:p-10 max-w-6xl mx-auto space-y-10 mb-20">
-      <header className="space-y-6">
-        <h1 className="text-5xl md:text-7xl font-black italic uppercase tracking-tighter glow-yellow leading-none">ROSTER DE TALENTO</h1>
-        
-        <div className="relative group max-w-md">
-           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-hover:text-brand-yellow transition-colors" size={20} />
-           <input 
-             type="text" 
-             placeholder="BUSCAR ARTISTA..."
-             className="w-full bg-brand-dark border-4 border-boombox-gray p-4 pl-12 rounded-2xl focus:border-brand-yellow outline-none font-bold uppercase italic shadow-lg"
-             value={search}
-             onChange={e => setSearch(e.target.value)}
-           />
+    <div className="max-w-6xl mx-auto p-6 md:p-10 space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6 text-left">
+        <div>
+          <h1 className="text-3xl md:text-5xl font-black italic uppercase text-white tracking-tight">ROSTER DE ARTISTAS</h1>
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mt-1">PRODUCTORES, MCS Y CREADORES DE RAPLIFE</p>
         </div>
-      </header>
+        <div className="flex items-center gap-2">
+          <span className="px-3.5 py-1.5 rounded-full bg-brand-yellow/10 border border-brand-yellow/30 text-brand-yellow font-mono font-black text-xs">
+            {artists.length} MIEMBROS ACTIVOS
+          </span>
+        </div>
+      </div>
 
       {loading ? (
-        <div className="py-20 text-center animate-pulse italic font-black uppercase text-xl">SINTONIZANDO SEÑAL...</div>
+        <div className="py-20 text-center animate-pulse text-brand-yellow font-black uppercase tracking-widest text-sm">
+          CARGANDO ROSTER...
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-           {filtered.map((artist) => (
-             <Link key={artist.id} to={`/profile/${artist.id}`}>
-                <motion.div 
-                  whileHover={{ y: -5 }}
-                  className="bg-white/5 border border-white/5 rounded-[2.5rem] p-6 hover:border-brand-yellow/30 transition-all group flex flex-col items-center text-center boombox-texture overflow-hidden"
-                >
-                   <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-boombox-gray mb-6 shadow-2xl group-hover:border-brand-yellow transition-colors bg-gray-900">
-                      <img src={artist.photoURL || 'https://via.placeholder.com/200'} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" />
-                   </div>
-                   <h3 className="text-2xl font-black italic uppercase tracking-tight mb-2 group-hover:text-brand-yellow transition-colors">{artist.displayName}</h3>
-                   <p className="text-gray-500 text-xs font-bold uppercase tracking-widest line-clamp-2 px-4 italic mb-6">
-                      {artist.bio || "Bio no disponible. Dale play a sus tracks abajo."}
-                   </p>
-                   <div className="mt-auto w-full pt-4 border-t border-white/5 flex items-center justify-center gap-2 text-brand-yellow font-black italic uppercase text-xs">
-                      VER PERFIL <ArrowRight size={14} />
-                   </div>
-                </motion.div>
-             </Link>
-           ))}
-           {filtered.length === 0 && (
-             <div className="col-span-full py-32 text-center opacity-30 italic font-black uppercase text-sm tracking-widest">
-                NO SE ENCONTRARON ARTISTAS CON ESE NOMBRE
-             </div>
-           )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {artists.map((artist) => (
+            <Link
+              key={artist.id || artist.uid}
+              to={`/profile/${artist.id || artist.uid}`}
+              className="bg-brand-dark border-2 border-white/10 hover:border-brand-yellow rounded-3xl p-5 space-y-4 group transition-all hover:scale-105 shadow-xl text-left flex flex-col"
+            >
+              <div className="w-full aspect-square rounded-2xl overflow-hidden border border-white/10 relative">
+                <img
+                  src={artist.photoURL || artist.avatarUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400'}
+                  alt={artist.displayName}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400';
+                  }}
+                />
+                {artist.isSponsor && (
+                  <span className="absolute top-2 right-2 p-1.5 rounded-full bg-brand-yellow text-black shadow-md">
+                    <Star size={12} fill="currentColor" />
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1 flex-1">
+                <h3 className="font-black italic uppercase text-lg text-white group-hover:text-brand-yellow transition-colors truncate">
+                  {artist.displayName || artist.artistName || 'Artista RapLife'}
+                </h3>
+                <p className="text-[10px] font-mono font-bold uppercase text-brand-green">
+                  {artist.mainCategory || artist.role || 'Miembro'}
+                </p>
+                {artist.bio && (
+                  <p className="text-xs text-gray-400 line-clamp-2 mt-2 leading-relaxed">
+                    {artist.bio}
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-gray-500">
+                <span>VER PERFIL</span>
+                <span className="text-brand-yellow font-black">{artist.points || 0} XP</span>
+              </div>
+            </Link>
+          ))}
         </div>
       )}
     </div>

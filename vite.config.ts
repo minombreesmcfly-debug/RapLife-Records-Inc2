@@ -7,6 +7,12 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      'import.meta.env.VITE_CLOUDINARY_CLOUD_NAME': JSON.stringify(env.CLOUDINARY_CLOUD_NAME || env.VITE_CLOUDINARY_CLOUD_NAME || 'rmyvnech'),
+      'import.meta.env.VITE_CLOUDINARY_API_KEY': JSON.stringify(env.CLOUDINARY_API_KEY || env.VITE_CLOUDINARY_API_KEY || ''),
+      'import.meta.env.VITE_CLOUDINARY_API_SECRET': JSON.stringify(env.CLOUDINARY_API_SECRET || env.VITE_CLOUDINARY_API_SECRET || ''),
+      'import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET': JSON.stringify(env.CLOUDINARY_UPLOAD_PRESET || env.VITE_CLOUDINARY_UPLOAD_PRESET || ''),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
