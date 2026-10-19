@@ -982,31 +982,32 @@ const AdminView = () => {
       try {
         const res = await fetch('/api/users');
         if (res.ok) {
-          const serverUsers: any[] = await res.json();
-          const mergedMap = new Map<string, any>();
-          for (const u of serverUsers || []) {
-            const k = u.id || u.uid || u.email;
-            if (k) mergedMap.set(k, u);
-          }
-          for (const u of firestoreList) {
-            const k = u.id || u.uid || u.email;
-            if (k) {
-              const existing = mergedMap.get(k) || {};
-              mergedMap.set(k, { ...existing, ...u });
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const serverUsers: any[] = await res.json();
+            const mergedMap = new Map<string, any>();
+            for (const u of serverUsers || []) {
+              const k = u.id || u.uid || u.email;
+              if (k) mergedMap.set(k, u);
             }
-          }
-          const combined = Array.from(mergedMap.values());
-          if (combined.length > 0) {
-            setArtists(combined);
-            return;
+            for (const u of firestoreList) {
+              const k = u.id || u.uid || u.email;
+              if (k) {
+                const existing = mergedMap.get(k) || {};
+                mergedMap.set(k, { ...existing, ...u });
+              }
+            }
+            const combined = Array.from(mergedMap.values());
+            if (combined.length > 0) {
+              setArtists(combined);
+              return;
+            }
           }
         }
       } catch (err) {
         console.warn("[ADMIN] Could not fetch server users:", err);
       }
-      if (firestoreList.length > 0) {
-        setArtists(firestoreList);
-      }
+      setArtists(firestoreList);
     };
 
     const fetchData = async () => {
@@ -1123,7 +1124,12 @@ const AdminView = () => {
       let serverUsers: any[] = [];
       try {
         const res = await fetch('/api/users');
-        if (res.ok) serverUsers = await res.json();
+        if (res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            serverUsers = await res.json();
+          }
+        }
       } catch (sErr) {
         console.warn("Manual server users fetch warning:", sErr);
       }
