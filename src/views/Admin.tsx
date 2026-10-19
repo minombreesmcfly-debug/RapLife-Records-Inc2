@@ -261,9 +261,17 @@ const AdminView = () => {
       await updateDoc(doc(db, 'users', userId), {
         showInSlides: newStatus,
         isSponsor: newStatus,
+        isPinned: newStatus,
+        starred: newStatus,
         updatedAt: serverTimestamp()
       });
-      setArtists(prev => prev.map(u => u.id === userId ? { ...u, showInSlides: newStatus, isSponsor: newStatus } : u));
+      setArtists(prev => prev.map(u => u.id === userId ? { 
+        ...u, 
+        showInSlides: newStatus, 
+        isSponsor: newStatus,
+        isPinned: newStatus,
+        starred: newStatus 
+      } : u));
     } catch (e) {
       console.error("Error toggling user sponsor status:", e);
       alert("Error al actualizar el estado de patrocinio del usuario.");
@@ -273,17 +281,24 @@ const AdminView = () => {
   };
 
   const handleToggleAllSponsors = async (enableAll: boolean) => {
-    
     try {
       const promises = artists.map(u => 
         updateDoc(doc(db, 'users', u.id), {
           showInSlides: enableAll,
           isSponsor: enableAll,
+          isPinned: enableAll,
+          starred: enableAll,
           updatedAt: serverTimestamp()
         })
       );
       await Promise.all(promises);
-      setArtists(prev => prev.map(u => ({ ...u, showInSlides: enableAll, isSponsor: enableAll })));
+      setArtists(prev => prev.map(u => ({ 
+        ...u, 
+        showInSlides: enableAll, 
+        isSponsor: enableAll,
+        isPinned: enableAll,
+        starred: enableAll
+      })));
       alert(`¡Se han ${enableAll ? 'activado' : 'desactivado'} todos los usuarios en los slides!`);
     } catch (e) {
       console.error("Error toggling all sponsors:", e);
@@ -2211,10 +2226,34 @@ const AdminView = () => {
         </div>
       )}
 
+      {/* QUICK JUMP / STATS SHORTCUTS BAR */}
+      <div className="bg-black/60 border-2 border-brand-yellow/30 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <Shield className="text-brand-yellow" size={20} />
+          <span className="text-xs font-black uppercase text-white tracking-wider">PANEL DE CONTROL DIRECTO:</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => document.getElementById('admin-users-section')?.scrollIntoView({ behavior: 'smooth' })}
+            className="px-4 py-2 bg-brand-yellow text-black hover:bg-yellow-400 font-black text-xs uppercase rounded-xl transition-all shadow-glow flex items-center gap-1.5 cursor-pointer active:scale-95"
+          >
+            <Users size={14} />
+            <span>LISTA DE USUARIOS ({artists.length})</span>
+          </button>
+          <button
+            onClick={() => document.getElementById('admin-radio-section')?.scrollIntoView({ behavior: 'smooth' })}
+            className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Radio size={14} className="text-brand-yellow" />
+            <span>RADIO ({localRadioTracks.length})</span>
+          </button>
+        </div>
+      </div>
+
       {/* Grid: Admin Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
         {/* Left Column: Unified Radio Controls */}
-        <div className="space-y-10 flex flex-col">
+        <div id="admin-radio-section" className="space-y-10 flex flex-col">
           {/* Card: Unified Local Radio Workspace */}
           <div className="bg-brand-dark p-8 rounded-[2rem] border-4 border-boombox-gray space-y-6 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
@@ -3709,7 +3748,7 @@ const AdminView = () => {
       </div>
 
       {/* REGISTERED USERS & ROLES DASHBOARD SECTION */}
-      <div className="bg-brand-dark p-8 rounded-[2.5rem] border-4 border-boombox-gray space-y-6 relative overflow-hidden">
+      <div id="admin-users-section" className="bg-brand-dark p-8 rounded-[2.5rem] border-4 border-boombox-gray space-y-6 relative overflow-hidden scroll-mt-24">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-brand-yellow text-black rounded-2xl shadow-glow">

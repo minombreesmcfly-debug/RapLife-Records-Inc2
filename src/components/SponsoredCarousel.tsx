@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, ChevronLeft, ChevronRight, Music, Heart, Disc, ExternalLink } from 'lucide-react';
 import { collection, query, where, getDocs, limit, doc, getDoc } from 'firebase/firestore';
-import { db, signInWithGoogle } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
 interface SponsoredArtist {
@@ -78,27 +78,10 @@ export default function SponsoredCarousel() {
               const dispName = (data.displayName || '').trim();
               const isDefaultProfile = !dispName || dispName === 'RapLife Member' || dispName === 'Artista Sin Nombre';
               
-              // If Admin explicitly toggled showInSlides === false or isSponsor === false, exclude this account
-              if (data.showInSlides === false || data.isSponsor === false) {
-                return;
-              }
+              // Only include artists that the administrator has explicitly starred or activated for slides
+              const isSelectedByAdmin = data.showInSlides === true || data.isSponsor === true || data.isPinned === true || data.starred === true;
 
-              const hasExplicitToggle = data.showInSlides !== undefined || data.isSponsor !== undefined;
-              const isSponsorActive = data.showInSlides === true || data.isSponsor === true;
-
-              // Include if explicitly marked as sponsor/slides, or fallback for legacy profiles without explicit toggle
-              const isArtist = isSponsorActive || (!hasExplicitToggle && (
-                               data.role === 'artist' || 
-                               data.isPinned === true || 
-                               data.isExclusive === true ||
-                               (!isDefaultProfile && (
-                                 data.hasAvatar === true || 
-                                 (data.avatarUrl && data.avatarUrl !== '') || 
-                                 (data.photoURL && data.photoURL !== '') ||
-                                 (data.avatarSelfieUrl && data.avatarSelfieUrl !== '')
-                               ))));
-
-              if (isArtist) {
+              if (isSelectedByAdmin) {
                 dbArtists.push({
                   id: docSnap.id,
                   displayName: data.displayName || 'Artista Sin Nombre',
@@ -262,29 +245,7 @@ export default function SponsoredCarousel() {
               <span className="px-2 py-1 bg-brand-yellow/10 border border-brand-yellow/30 text-brand-yellow font-black uppercase text-[6.5px] rounded tracking-wider flex items-center gap-0.5 whitespace-nowrap">
                 ★ VIP MEMBER ★
               </span>
-            ) : (
-              <button
-                onClick={async () => {
-                  try {
-                    await signInWithGoogle();
-                  } catch (err: any) {
-                    if (err?.code !== 'auth/popup-closed-by-user') {
-                      console.warn("[AUTH] Popup login notice in carousel:", err?.message || err);
-                      try {
-                        const { signInWithGoogleRedirect } = await import('../lib/firebase');
-                        await signInWithGoogleRedirect();
-                      } catch (redirectErr: any) {
-                        console.warn("[AUTH] Redirect fallback notice in carousel:", redirectErr?.message || redirectErr);
-                      }
-                    }
-                  }
-                }}
-                className="px-2 py-1 bg-brand-yellow hover:bg-yellow-400 text-black font-black uppercase text-[6.5px] rounded tracking-wider flex items-center gap-0.5 whitespace-nowrap cursor-pointer active:scale-95 transition-transform"
-              >
-                <Sparkles size={7} />
-                <span>UNIRTE</span>
-              </button>
-            )
+            ) : null
           ) : (
             <>
               {activeArtist.spotifyUrl && (
@@ -427,29 +388,7 @@ export default function SponsoredCarousel() {
                         <Disc size={11} className="animate-pulse" />
                         <span>SUBIR TRACK</span>
                       </Link>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await signInWithGoogle();
-                          } catch (err: any) {
-                            if (err?.code !== 'auth/popup-closed-by-user') {
-                              console.warn("[AUTH] Popup login notice in banner:", err?.message || err);
-                              try {
-                                const { signInWithGoogleRedirect } = await import('../lib/firebase');
-                                await signInWithGoogleRedirect();
-                              } catch (redirectErr: any) {
-                                console.warn("[AUTH] Redirect fallback notice in banner:", redirectErr?.message || redirectErr);
-                              }
-                            }
-                          }
-                        }}
-                        className="flex items-center gap-1.5 bg-brand-yellow hover:bg-yellow-400 text-black font-black uppercase text-[9px] tracking-wider px-4 py-2.5 rounded-lg transition-all scale-95 hover:scale-100 cursor-pointer shadow-[0_4px_12px_rgba(247,250,5,0.25)]"
-                      >
-                        <Sparkles size={11} />
-                        <span>UNIRSE AHORA (GOOGLE)</span>
-                      </button>
-                    )
+                    ) : null
                   ) : (
                     <>
                       {activeArtist.spotifyUrl && (

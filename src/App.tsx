@@ -607,7 +607,7 @@ const AppContent = () => {
                   <span className="hidden md:inline">ADMIN</span>
                 </Link>
               )}
-              {user ? (
+              {user && (
                 <div className="flex items-center gap-1.5 md:gap-3">
                   <Link to="/settings" onClick={playBubblePop} className="flex items-center gap-1.5 md:gap-3 bg-black/30 p-1 md:p-1.5 md:pr-3.5 rounded-lg md:rounded-2xl border-2 md:border-4 border-black group">
                     <img src={profile?.photoURL || user.photoURL || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400'} className="w-5 h-5 md:w-9 md:h-9 rounded-lg border border-brand-yellow group-hover:scale-110 transition-transform object-cover" alt="avatar" />
@@ -625,14 +625,6 @@ const AppContent = () => {
                     <span className="hidden md:inline">SALIR</span>
                   </button>
                 </div>
-              ) : (
-                <button 
-                  onClick={() => { playBubblePop(); handleDirectLogin(); }} 
-                  disabled={isLoginPending}
-                  className="chrome-button px-3.5 py-1.5 md:px-5 md:py-3 rounded-lg md:rounded-xl text-black font-black uppercase text-[9px] md:text-xs shadow-lg hover:scale-105 transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  {isLoginPending ? 'LOGGING...' : 'LOGIN'}
-                </button>
               )}
             </div>
           </div>
@@ -644,7 +636,7 @@ const AppContent = () => {
       <RadioStrip />
 
       {/* SEARCH/ROUTED CONTENT */}
-      <main className="pt-28 md:pt-40 relative z-10 flex-grow pb-8 md:pb-12">
+      <main className={`pt-28 md:pt-40 relative z-10 flex-grow pb-8 md:pb-12 transition-all duration-500 ${!user && !loading ? 'blur-md pointer-events-none select-none' : ''}`}>
         <Suspense fallback={<div className="p-20 text-center animate-pulse text-brand-yellow font-black uppercase tracking-widest">CARGANDO MÓDULO...</div>}>
           <Routes>
             <Route path="/" element={<LandingPage />} />
@@ -660,7 +652,7 @@ const AppContent = () => {
         </Suspense>
       </main>
 
-      <div className="relative z-10 w-full mt-auto">
+      <div className={`relative z-10 w-full mt-auto transition-all duration-500 ${!user && !loading ? 'blur-md pointer-events-none select-none' : ''}`}>
         <Footer />
       </div>
 
@@ -806,6 +798,84 @@ const AppContent = () => {
                     Reintentar Popup
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* INITIAL MANDATORY LOGIN POPUP WITH BLURRED BACKDROP */}
+      <AnimatePresence>
+        {!user && !loading && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none overflow-y-auto">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+              className="bg-neutral-950 border-4 border-boombox-gray p-6 sm:p-8 rounded-[2rem] max-w-md w-full shadow-[0_0_50px_rgba(248,251,2,0.25)] relative text-center boombox-texture font-sans my-auto"
+            >
+              {/* Corner screws */}
+              <div className="absolute top-4 left-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
+              <div className="absolute top-4 right-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
+              <div className="absolute bottom-4 left-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
+              <div className="absolute bottom-4 right-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
+
+              {/* Logo with pulsating aura */}
+              <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-black rounded-full border-4 border-brand-yellow/40 flex items-center justify-center relative mb-4 shadow-2xl">
+                <img src="/assets/Logo.png" alt="RapLife Logo" className="w-[85%] h-[85%] object-contain relative z-10" />
+                <div className="w-full h-full bg-brand-yellow/15 rounded-full animate-pulse absolute inset-0" />
+              </div>
+
+              {/* Tag / Badge */}
+              <span className="inline-block bg-brand-yellow/15 border border-brand-yellow/40 text-brand-yellow font-black uppercase text-[9px] tracking-[0.25em] px-3 py-1 rounded-full mb-2 font-mono">
+                DISCOGRÁFICA & RADIO 24/7
+              </span>
+
+              {/* Title & Description */}
+              <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-white glow-yellow mb-2">
+                ÚNETE A RAPLIFE
+              </h2>
+              <p className="text-xs text-gray-300 font-medium leading-relaxed max-w-sm mx-auto mb-6">
+                Inicia sesión con tu cuenta de Google para acceder a la transmisión en vivo, misiones urbanas, chat de artistas y estrenos exclusivos.
+              </p>
+
+              {/* Main Google Login Action */}
+              <div className="space-y-3">
+                <button
+                  onClick={handleLoginPopup}
+                  disabled={isLoginPending}
+                  className="w-full py-4 px-6 bg-brand-yellow hover:bg-yellow-400 text-black font-black uppercase text-xs sm:text-sm tracking-wider rounded-2xl transition-all shadow-[0_0_20px_rgba(248,251,2,0.35)] hover:scale-[1.02] active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2.5"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                  <span>{isLoginPending ? 'CONECTANDO...' : 'ENTRAR CON GOOGLE'}</span>
+                </button>
+
+                {/* Redirect fallback */}
+                <button
+                  onClick={handleLoginRedirect}
+                  disabled={isLoginPending}
+                  className="w-full py-2.5 text-[10px] text-gray-400 hover:text-brand-yellow font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  ¿No abre la ventana? Iniciar sesión por redirección
+                </button>
+              </div>
+
+              {/* Demo test button for Admin */}
+              <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-center">
+                <button
+                  onClick={() => {
+                    loginAsDemo('minombreesmcfly@gmail.com', 'McFly (Admin)', 'admin');
+                  }}
+                  className="text-[9px] font-mono text-gray-500 hover:text-white uppercase tracking-widest cursor-pointer underline decoration-dotted"
+                >
+                  ⚡ Acceso Modo Admin (McFly Demo)
+                </button>
               </div>
             </motion.div>
           </div>

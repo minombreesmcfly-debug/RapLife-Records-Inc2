@@ -17,40 +17,80 @@ const firebaseConfig = {
   measurementId: (metaEnv.VITE_FIREBASE_MEASUREMENT_ID as string) || fallbackConfig.measurementId || ""
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+let app: any;
+try {
+  app = initializeApp(firebaseConfig);
+} catch (appErr: any) {
+  console.warn('[FIREBASE] initializeApp notice, using fallback:', appErr);
+  try {
+    app = initializeApp(fallbackConfig);
+  } catch (fbErr) {
+    console.error('[FIREBASE] Fatal fallback initializeApp error:', fbErr);
+  }
+}
+
+let authInstance: any;
+try {
+  authInstance = getAuth(app);
+} catch (authErr) {
+  console.error('[FIREBASE] Fatal getAuth error:', authErr);
+}
+export const auth = authInstance;
 
 // Calculate the project ID being used
 const projectId = (metaEnv.VITE_FIREBASE_PROJECT_ID as string) || fallbackConfig.projectId;
 
 // Calculate Firestore database ID safely
-let firestoreDbId = (metaEnv.VITE_FIREBASE_FIRESTORE_DATABASE_ID as string);
+let firestoreDbId = (metaEnv.VITE_FIREBASE_FIRESTORE_DATABASE_ID as string) || "";
 
 if (!firestoreDbId) {
   // If we are running in the AI Studio Sandbox (matching the fallback config project ID), we use the custom database
   if (projectId === fallbackConfig.projectId) {
-    firestoreDbId = fallbackConfig.firestoreDatabaseId;
+    firestoreDbId = fallbackConfig.firestoreDatabaseId || "";
   } else {
     // If running in a custom user Firebase project (e.g. raplife), default to the (default) database
     firestoreDbId = "";
   }
 }
 
-// Security: if databaseId resembles a URL or path, it will crash Firestore. Clear it.
-if (firestoreDbId && (firestoreDbId.includes('://') || firestoreDbId.includes('.') || firestoreDbId.includes('/'))) {
-  console.warn(`[FIREBASE] Sanitized invalid databaseId URL/path: "${firestoreDbId}". Falling back to default.`);
-  firestoreDbId = "";
+// Security: if databaseId resembles a URL, path, or "(default)", do not pass as custom DB
+const isCustomDb = firestoreDbId && 
+  firestoreDbId !== '(default)' && 
+  firestoreDbId !== 'default' &&
+  !firestoreDbId.includes('://') && 
+  !firestoreDbId.includes('.') && 
+  !firestoreDbId.includes('/');
+
+let dbInstance: any;
+try {
+  if (isCustomDb) {
+    dbInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      ignoreUndefinedProperties: true,
+    }, firestoreDbId);
+  } else {
+    dbInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      ignoreUndefinedProperties: true,
+    });
+  }
+} catch (dbErr) {
+  console.warn('[FIREBASE] initializeFirestore notice, trying getFirestore fallback:', dbErr);
+  try {
+    dbInstance = getFirestore(app);
+  } catch (gfErr) {
+    console.error('[FIREBASE] Fatal getFirestore fallback error:', gfErr);
+  }
 }
+export const db = dbInstance;
 
-// Initialize Firestore with robust connection settings:
-// Use experimentalForceLongPolling to immediately establish HTTP long-polling channels, bypassing
-// 10-second WebSocket timeouts and handshake errors in iframe/sandboxed environments.
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-  ignoreUndefinedProperties: true,
-}, firestoreDbId || undefined);
-
-export const storage = getStorage(app);
+let storageInstance: any;
+try {
+  storageInstance = getStorage(app);
+} catch (storageErr) {
+  console.error('[FIREBASE] getStorage error:', storageErr);
+}
+export const storage = storageInstance;
 
 export enum OperationType {
   CREATE = 'create',
