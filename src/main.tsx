@@ -64,11 +64,14 @@ interface State {
   error: Error | null;
 }
 
-class RootErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
+class RootErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
@@ -82,8 +85,8 @@ class RootErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center select-none font-sans">
-          <div className="w-16 h-16 rounded-full bg-brand-yellow/20 border-2 border-brand-yellow flex items-center justify-center mb-4">
-            <img src="/assets/Logo.png" alt="RapLife" className="w-10 h-10 object-contain" />
+          <div className="flex items-center justify-center mb-4">
+            <img src="/assets/Logo.png" alt="RapLife" className="w-20 h-20 object-contain" />
           </div>
           <h1 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-brand-yellow mb-2">
             RAPLIFE RECORDS INC.

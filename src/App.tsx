@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { MusicProvider, useMusic } from './context/MusicContext';
 import { Home, User, Radio, Gamepad2, Settings, LogIn, LogOut, Mic2, Heart, PlusCircle, ShieldCheck, Play, Upload, Volume2, Volume1, VolumeX, Shirt, X, AlertTriangle, ExternalLink, Compass, Monitor, Smartphone, Square, Pause, Rewind, FastForward, SkipForward } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { signInWithGoogle, signInWithGoogleRedirect, getRedirectResultHelper, logoutUser, db } from './lib/firebase';
+import { signInWithGoogle, getRedirectResultHelper, logoutUser, db } from './lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -326,7 +326,7 @@ const LandingPage = () => {
 };
 
 const AppContent = () => {
-  const { user, profile, loading, isAdmin, loginAsDemo } = useAuth();
+  const { user, profile, loading, isAdmin } = useAuth();
   const { currentTrack, isMuted, toggleMute, isPlaying, togglePlay } = useMusic();
   const [loginError, setLoginError] = React.useState<any | null>(null);
   const [isLoginPending, setIsLoginPending] = React.useState(false);
@@ -407,18 +407,7 @@ const AppContent = () => {
     }
   };
 
-  const handleLoginRedirect = async () => {
-    setLoginError(null);
-    setIsLoginPending(true);
-    setShowLoginModal(false);
-    try {
-      await signInWithGoogleRedirect();
-    } catch (err: any) {
-      console.warn("[AUTH] Firebase Redirect Login notice:", err?.message || err);
-      setLoginError(err);
-      setIsLoginPending(false);
-    }
-  };
+
 
   const handleDirectLogin = async () => {
     setLoginError(null);
@@ -746,9 +735,8 @@ const AppContent = () => {
                         Tu navegador o el visor dentro de la vista previa impidió abrir automáticamente el pop-up de Google.
                       </p>
                       <div className="bg-black/40 p-3 rounded-2xl border border-white/10 space-y-2">
-                        <p className="text-[10px] font-black uppercase text-brand-yellow">OPCIONES RÁPIDAS DE ACCESO:</p>
+                        <p className="text-[10px] font-black uppercase text-brand-yellow">CONSEJOS DE ACCESO:</p>
                         <ul className="list-disc pl-4 space-y-1.5 text-[11px] text-gray-300">
-                          <li><strong className="text-white">Acceso Rápido Admin:</strong> Si estás probando la app en el entorno de desarrollo, pulsa el botón dorado abajo para ingresar inmediatamente como Administrador (McFly).</li>
                           <li><strong className="text-white">Permitir ventanas emergentes:</strong> En la barra de direcciones de tu navegador, haz clic en el icono de ventana bloqueada y selecciona "Permitir siempre".</li>
                         </ul>
                       </div>
@@ -775,7 +763,7 @@ const AppContent = () => {
                   Mensaje: {loginError?.message || String(loginError)}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                   <button 
                     onClick={() => setLoginError(null)}
                     className="py-3 text-center rounded-xl bg-black/40 text-xs font-black uppercase tracking-wider text-gray-400 hover:text-white hover:bg-black/65 transition-colors border-2 border-black cursor-pointer"
@@ -783,19 +771,10 @@ const AppContent = () => {
                     Cerrar Detalle
                   </button>
                   <button 
-                    onClick={() => {
-                      loginAsDemo('minombreesmcfly@gmail.com', 'McFly (Admin)', 'admin');
-                      setLoginError(null);
-                    }}
-                    className="py-3 text-center rounded-xl bg-brand-yellow hover:bg-brand-yellow/85 text-black font-black uppercase text-xs shadow-glow transition-all font-sans border-2 border-black flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    ★ Acceso Admin
-                  </button>
-                  <button 
                     onClick={handleLoginPopup}
-                    className="py-3 text-center rounded-xl bg-boombox-gray text-white font-black uppercase text-xs hover:bg-black border-2 border-black transition-transform active:scale-95 cursor-pointer"
+                    className="py-3 text-center rounded-xl bg-brand-yellow text-black font-black uppercase text-xs hover:bg-yellow-400 transition-transform active:scale-95 cursor-pointer shadow-glow"
                   >
-                    Reintentar Popup
+                    Reintentar Conexión
                   </button>
                 </div>
               </div>
@@ -813,7 +792,7 @@ const AppContent = () => {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               transition={{ type: "spring", stiffness: 350, damping: 25 }}
-              className="bg-neutral-950 border-4 border-boombox-gray p-6 sm:p-8 rounded-[2rem] max-w-md w-full shadow-[0_0_50px_rgba(248,251,2,0.25)] relative text-center boombox-texture font-sans my-auto"
+              className="bg-black border-4 border-boombox-gray p-6 sm:p-8 rounded-[2rem] max-w-md w-full shadow-2xl relative text-center boombox-texture font-sans my-auto"
             >
               {/* Corner screws */}
               <div className="absolute top-4 left-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
@@ -821,10 +800,9 @@ const AppContent = () => {
               <div className="absolute bottom-4 left-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
               <div className="absolute bottom-4 right-4 w-2.5 h-2.5 rounded-full bg-black/60 border border-white/10" />
 
-              {/* Logo with pulsating aura */}
-              <div className="mx-auto w-20 h-20 sm:w-24 sm:h-24 bg-black rounded-full border-4 border-brand-yellow/40 flex items-center justify-center relative mb-4 shadow-2xl">
-                <img src="/assets/Logo.png" alt="RapLife Logo" className="w-[85%] h-[85%] object-contain relative z-10" />
-                <div className="w-full h-full bg-brand-yellow/15 rounded-full animate-pulse absolute inset-0" />
+              {/* Logo */}
+              <div className="flex justify-center mb-5">
+                <img src="/assets/Logo.png" alt="RapLife Logo" className="w-24 h-24 sm:w-28 sm:h-28 object-contain" />
               </div>
 
               {/* Tag / Badge */}
@@ -841,7 +819,7 @@ const AppContent = () => {
               </p>
 
               {/* Main Google Login Action */}
-              <div className="space-y-3">
+              <div>
                 <button
                   onClick={handleLoginPopup}
                   disabled={isLoginPending}
@@ -854,27 +832,6 @@ const AppContent = () => {
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                   </svg>
                   <span>{isLoginPending ? 'CONECTANDO...' : 'ENTRAR CON GOOGLE'}</span>
-                </button>
-
-                {/* Redirect fallback */}
-                <button
-                  onClick={handleLoginRedirect}
-                  disabled={isLoginPending}
-                  className="w-full py-2.5 text-[10px] text-gray-400 hover:text-brand-yellow font-black uppercase tracking-wider transition-colors cursor-pointer"
-                >
-                  ¿No abre la ventana? Iniciar sesión por redirección
-                </button>
-              </div>
-
-              {/* Demo test button for Admin */}
-              <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-center">
-                <button
-                  onClick={() => {
-                    loginAsDemo('minombreesmcfly@gmail.com', 'McFly (Admin)', 'admin');
-                  }}
-                  className="text-[9px] font-mono text-gray-500 hover:text-white uppercase tracking-widest cursor-pointer underline decoration-dotted"
-                >
-                  ⚡ Acceso Modo Admin (McFly Demo)
                 </button>
               </div>
             </motion.div>
